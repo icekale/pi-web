@@ -96,7 +96,6 @@ components/
   ModelsConfig.tsx    modal for editing models.json (opened from sidebar bottom)
   PluginsConfig.tsx   modal for installed package plugins
   SkillsConfig.tsx    modal for loaded/search/installable skills
-  (FileExplorer.tsx removed — sidebar no longer mounts a file tree)
   FileIcons.tsx       file icon helpers
   FileViewer.tsx      file content in a tab
   TabBar.tsx          tab bar (Chat + open file tabs)

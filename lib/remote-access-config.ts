@@ -6,7 +6,8 @@ import { dirname, join } from "node:path";
 import { domainToASCII } from "node:url";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { writePrivateFileAtomicSync } from "./atomic-file";
-import { PI_WEB_AUTH_USERNAME } from "./web-auth-constants";
+
+export const PI_WEB_AUTH_USERNAME = "pi";
 
 export const REMOTE_ACCESS_SCHEMA_VERSION = 1;
 export const PASSWORD_MIN_LENGTH = 12;

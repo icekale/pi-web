@@ -1,6 +1,5 @@
 import { createHash, timingSafeEqual } from "node:crypto";
-import { envPasswordEnabled, hasStoredPasswordHash, verifyStoredPassword } from "./remote-access-config";
-import { PI_WEB_AUTH_USERNAME } from "./web-auth-constants";
+import { envPasswordEnabled, hasStoredPasswordHash, PI_WEB_AUTH_USERNAME, verifyStoredPassword } from "./remote-access-config";
 
 export { PI_WEB_AUTH_USERNAME };
 
