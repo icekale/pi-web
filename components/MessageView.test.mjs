@@ -57,6 +57,12 @@ test("token speed pill stays on one line while the model row can wrap", () => {
   assert.match(source, /flexWrap: "wrap"/);
 });
 
+test("token speed clock starts when the first tokens appear, not on the next poll", () => {
+  assert.match(source, /estimatedTokens > 0 && streamStartRef\.current === null/);
+  assert.match(source, /computeStreamingTps/);
+  assert.doesNotMatch(source, /if \(tokens === 0\) return/);
+});
+
 test("renders a provider error when the assistant message has no content", () => {
   const html = renderMessage({
     role: "assistant",
