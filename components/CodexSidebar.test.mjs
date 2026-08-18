@@ -206,7 +206,15 @@ test("automatic inventory refreshes are unforced and coalesced", () => {
 
   const forcedCalls = sidebar.match(/loadData\(true\)/g) ?? [];
   assert.equal(forcedCalls.length, 1, "only the manual refresh button may force a scan");
-  assert.match(sidebar, /sidebar\.refresh[^]*?onClick=\{\(\) => void loadData\(true\)\}/);
+  assert.match(sidebar, /sidebar\.refresh[\s\S]*?loadData\(true\)/);
+});
+
+test("manual refresh spins the header button while the forced scan runs", () => {
+  assert.match(sidebar, /const \[refreshing, setRefreshing\] = useState\(false\)/);
+  assert.match(sidebar, /setRefreshing\(true\)[\s\S]*?loadData\(true\)[\s\S]*?setRefreshing\(false\)/);
+  assert.match(sidebar, /busy=\{refreshing\}/);
+  assert.match(sidebar, /aria-busy=\{busy \|\| undefined\}/);
+  assert.match(sidebar, /refreshing \? \{ animation: "spin 0\.8s linear infinite" \}/);
 });
 
 test("initial running ids establish a baseline without a second inventory request", () => {

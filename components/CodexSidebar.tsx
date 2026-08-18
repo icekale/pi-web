@@ -98,7 +98,8 @@ const IconButton = forwardRef<HTMLButtonElement, {
   onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
   children: ReactNode;
   disabled?: boolean;
-}>(function IconButton({ label, onClick, children, disabled }, ref) {
+  busy?: boolean;
+}>(function IconButton({ label, onClick, children, disabled, busy }, ref) {
   return (
     <button
       ref={ref}
@@ -106,7 +107,8 @@ const IconButton = forwardRef<HTMLButtonElement, {
       className="codex-sidebar-icon-button"
       aria-label={label}
       title={label}
-      disabled={disabled}
+      aria-busy={busy || undefined}
+      disabled={disabled || busy}
       onClick={onClick}
     >
       {children}
@@ -142,6 +144,7 @@ export function CodexSidebar({
   const [preferences, setPreferences] = useState<ProjectPreference[]>([]);
   const [selectedCwd, setSelectedCwd] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
   const [projectSearchOpen, setProjectSearchOpen] = useState(false);
@@ -644,8 +647,15 @@ export function CodexSidebar({
 
       <header className="codex-sidebar-brand-header">
         <div className="codex-sidebar-brand">Pi Web</div>
-        <IconButton label={t("sidebar.refresh")} onClick={() => void loadData(true)}>
-          <RefreshCw size={14} aria-hidden="true" />
+        <IconButton
+          label={t("sidebar.refresh")}
+          busy={refreshing}
+          onClick={() => {
+            setRefreshing(true);
+            void loadData(true).finally(() => setRefreshing(false));
+          }}
+        >
+          <RefreshCw size={14} aria-hidden="true" style={refreshing ? { animation: "spin 0.8s linear infinite" } : undefined} />
         </IconButton>
       </header>
 
