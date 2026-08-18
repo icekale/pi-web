@@ -65,6 +65,13 @@ export function estimateStreamingTokens(
   return { tokens, cache };
 }
 
+export function billedOutputTokens(usage?: { output?: number; reasoning?: number } | null): number {
+  if (!usage) return 0;
+  const output = typeof usage.output === "number" ? usage.output : 0;
+  const reasoning = typeof usage.reasoning === "number" ? usage.reasoning : 0;
+  return reasoning > output ? output + reasoning : output;
+}
+
 export function computeStreamingTps(
   tokens: number,
   firstTokenAt: number | null,

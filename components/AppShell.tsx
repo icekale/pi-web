@@ -47,6 +47,7 @@ import { useIsWideDesktop } from "@/hooks/useIsWideDesktop";
 import { useViewportHeight } from "@/hooks/useViewportHeight";
 import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { useAudio } from "@/hooks/useAudio";
+import { useTokenSpeedPreference } from "@/hooks/useTokenSpeedPreference";
 import { copyText } from "@/lib/clipboard";
 import { getFileName } from "@/lib/file-paths";
 import { buildAtMentionText, buildFileAtMentionsText, buildFileLineMentionText } from "@/lib/file-fuzzy";
@@ -103,6 +104,7 @@ export function AppShell() {
   // also fire for tasks finishing in a non-active workspace whose ChatWindow
   // is not mounted. ChatWindow receives the audio callbacks as props.
   const { soundEnabled, onSoundToggle, playDoneSound, unlockAudio, soundEnabledRef } = useAudio();
+  const { tokenSpeedEnabled, onTokenSpeedToggle } = useTokenSpeedPreference();
   const notifiedAttentionRequestIdsRef = useRef(new Set<string>());
   const handleBackgroundTaskDone = useCallback(() => {
     if (soundEnabledRef.current) playDoneSound();
@@ -2236,6 +2238,7 @@ export function AppShell() {
                 </div>
               ) : null}
               soundEnabled={soundEnabled}
+              tokenSpeedEnabled={tokenSpeedEnabled}
               playDoneSound={playDoneSound}
               unlockAudio={unlockAudio}
               subagentMode={childSelected && selectedSession ? {
@@ -2418,6 +2421,8 @@ export function AppShell() {
         onLocaleChange={setLocale}
         soundEnabled={soundEnabled}
         onSoundToggle={onSoundToggle}
+        tokenSpeedEnabled={tokenSpeedEnabled}
+        onTokenSpeedToggle={onTokenSpeedToggle}
         onClose={() => setSettingsOpen(false)}
         onRegisterSettingsBack={(handler) => { settingsBackHandlerRef.current = handler; }}
         onModelsChanged={() => setModelsRefreshKey((key) => key + 1)}

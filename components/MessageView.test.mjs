@@ -50,9 +50,10 @@ test("does not print an ASSISTANT role label", () => {
   assert.doesNotMatch(html, />ASSISTANT</);
 });
 
-test("token speed pill stays on one line while the model row can wrap", () => {
-  // The t/s pill must never break internally (149.3 / t/s); the model row
-  // wraps the whole ↓tokens + pill cluster instead on narrow screens.
+test("token speed is dim monospace text, not a traffic-light pill", () => {
+  assert.doesNotMatch(source, /#53b3cb|#9bc53d|#f9c22e|#e01a4f/);
+  assert.match(source, /i18n\.estimatedTokenSpeed/);
+  assert.match(source, /fontVariantNumeric: "tabular-nums"/);
   assert.match(source, /whiteSpace: "nowrap"/);
   assert.match(source, /flexWrap: "wrap"/);
 });
@@ -271,6 +272,59 @@ test("renders custom-message images as buttons that open a larger preview", () =
 
   assert.match(html, /<button[^>]+aria-label="Preview image"[^>]*>/);
   assert.match(html, /<img[^>]+src="data:image\/png;base64,YWJj"/);
+});
+
+test("completed usage line includes billed t/s when timestamps exist", () => {
+  const html = renderMessage({
+    role: "assistant",
+    provider: "opencode-go",
+    model: "deepseek-v4-flash",
+    content: [{ type: "text", text: "Done" }],
+    usage: { input: 2577, output: 821, cacheRead: 0, cacheWrite: 0, cost: { total: 0.0002 } },
+    timestamp: 2000,
+  }, { prevTimestamp: 1000 });
+
+  assert.match(html, /821 out/);
+  assert.match(html, /821\.0 t\/s/);
+  assert.match(html, /\$0\.0002/);
+});
+
+test("completed t/s uses billed output when reasoning is already folded in", () => {
+  const html = renderMessage({
+    role: "assistant",
+    provider: "GROKCPA",
+    model: "grok-4.5",
+    content: [{ type: "text", text: "Done" }],
+    usage: { input: 100, output: 1617, reasoning: 1493, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } },
+    timestamp: 2000,
+  }, { prevTimestamp: 1000 });
+
+  assert.match(html, /1617\.0 t\/s/);
+  assert.doesNotMatch(html, /3110/);
+});
+
+test("hides t/s on the usage line when token speed is disabled", () => {
+  const html = renderMessage({
+    role: "assistant",
+    provider: "opencode-go",
+    model: "deepseek-v4-flash",
+    content: [{ type: "text", text: "Done" }],
+    usage: { input: 2577, output: 821, cacheRead: 0, cacheWrite: 0, cost: { total: 0.0002 } },
+    timestamp: 2000,
+  }, { prevTimestamp: 1000, tokenSpeedEnabled: false });
+
+  assert.match(html, /821 out/);
+  assert.doesNotMatch(html, /t\/s/);
+});
+
+test("omits completed t/s when generation timestamps are missing", () => {
+  const html = renderMessage({
+    role: "assistant",
+    content: [{ type: "text", text: "Done" }],
+    usage: { input: 10, output: 821, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } },
+  });
+
+  assert.doesNotMatch(html, /t\/s/);
 });
 
 test("keeps the assistant usage line on a single row with ellipsis", () => {

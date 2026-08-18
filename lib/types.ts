@@ -68,6 +68,7 @@ export interface AssistantMessage {
     output: number;
     cacheRead: number;
     cacheWrite: number;
+    reasoning?: number;
     cost: {
       input: number;
       output: number;

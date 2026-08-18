@@ -111,8 +111,16 @@ test("settings owns general preferences", () => {
   assert.match(settings, /onThemeChange\(id\)/);
   assert.match(settings, /onLocaleChange\(event\.target\.value as Locale\)/);
   assert.match(settings, /role="switch" aria-checked=\{soundEnabled\}/);
+  assert.match(settings, /settings\.completionSound[\s\S]*settings\.tokenSpeed/);
+  assert.match(settings, /role="switch" aria-checked=\{tokenSpeedEnabled\}/);
   assert.doesNotMatch(settings, /onTrustProject/);
   assert.doesNotMatch(settings, /<svg/);
+});
+
+test("AppShell owns the token-speed preference like completion sound", () => {
+  assert.match(shell, /useTokenSpeedPreference/);
+  assert.match(shell, /tokenSpeedEnabled=\{tokenSpeedEnabled\}/);
+  assert.match(shell, /onTokenSpeedToggle=\{onTokenSpeedToggle\}/);
 });
 
 test("directory picker creates a folder through the browse API", () => {

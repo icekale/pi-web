@@ -13,7 +13,7 @@ import { isEditToolName } from "@/lib/tool-names";
 import { TurnWrittenFiles } from "./TurnWrittenFiles";
 import type { WrittenFile } from "@/lib/turn-written-files";
 import { skillExpansionToCommand } from "@/lib/slash-display";
-import { computeStreamingTps, estimateStreamingTokens, type TokenEstimateCacheEntry } from "@/lib/token-speed";
+import { billedOutputTokens, computeStreamingTps, estimateStreamingTokens, type TokenEstimateCacheEntry } from "@/lib/token-speed";
 import type {
   AgentMessage,
   UserMessage,
@@ -179,6 +179,8 @@ interface Props {
    * final answer text-only.
    */
   writtenFiles?: WrittenFile[];
+  /** When false, hide every t/s figure. The streaming ↓ count stays visible. */
+  tokenSpeedEnabled?: boolean;
 }
 
 function formatTime(ts?: number): string | null {
@@ -227,12 +229,12 @@ function haveSameRelevantToolResults(
   return true;
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp, sessionId, defaultDetailsExpanded = false, writtenFiles }: Props) {
+export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp, sessionId, defaultDetailsExpanded = false, writtenFiles, tokenSpeedEnabled = true }: Props) {
   if (message.role === "user") {
     return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} defaultDetailsExpanded={defaultDetailsExpanded} writtenFiles={writtenFiles} />;
+    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} defaultDetailsExpanded={defaultDetailsExpanded} writtenFiles={writtenFiles} tokenSpeedEnabled={tokenSpeedEnabled} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -264,7 +266,8 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && prev.showTimestamp === next.showTimestamp
     && prev.prevTimestamp === next.prevTimestamp
     && prev.sessionId === next.sessionId
-    && prev.defaultDetailsExpanded === next.defaultDetailsExpanded;
+    && prev.defaultDetailsExpanded === next.defaultDetailsExpanded
+    && prev.tokenSpeedEnabled === next.tokenSpeedEnabled;
 });
 
 function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent }: {
@@ -516,6 +519,7 @@ function AssistantMessageView({
   entryId,
   defaultDetailsExpanded,
   writtenFiles,
+  tokenSpeedEnabled = true,
 }: {
   message: AssistantMessage;
   isStreaming?: boolean;
@@ -529,6 +533,7 @@ function AssistantMessageView({
   entryId?: string;
   defaultDetailsExpanded: boolean;
   writtenFiles?: WrittenFile[];
+  tokenSpeedEnabled?: boolean;
 }) {
   const { t } = useI18n();
   const time = showTimestamp ? formatTime(message.timestamp) : null;
@@ -557,9 +562,9 @@ function AssistantMessageView({
   }, [blockItems, isStreaming]);
   const estimatedTokensRef = useRef(estimatedTokens);
   estimatedTokensRef.current = estimatedTokens;
-  if (isStreaming && estimatedTokens > 0 && streamStartRef.current === null) {
-    streamStartRef.current = Date.now();
-  }
+  const finalTps = !isStreaming && tokenSpeedEnabled && prevTimestamp != null && message.timestamp != null
+    ? computeStreamingTps(billedOutputTokens(message.usage), prevTimestamp, message.timestamp)
+    : null;
 
   // Streaming-based timing for thinking blocks
   const blockStartTimesRef = useRef<Map<number, number>>(new Map());
@@ -599,6 +604,12 @@ function AssistantMessageView({
       setTimeout(() => setCopied(false), 1500);
     });
   };
+
+  useEffect(() => {
+    if (isStreaming && estimatedTokens > 0 && streamStartRef.current === null) {
+      streamStartRef.current = Date.now();
+    }
+  }, [isStreaming, estimatedTokens]);
 
   useEffect(() => {
     if (!isStreaming) {
@@ -676,23 +687,16 @@ function AssistantMessageView({
         )}
         {isStreaming && (() => {
           const est = Math.round(estimatedTokens);
+          if (est <= 0) return null;
           return (
             <>
-
-              {est > 0 && (
-                <span style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--text)" }} title={t("i18n.estimatedTokens")}>
-                  <span style={{ display: "flex", alignItems: "center", gap: 2, fontSize: "var(--text-meta)", fontWeight: 400 }}>
-                    <ArrowDown size={10} strokeWidth={1.8} aria-hidden="true" />
-                    {est}
-                  </span>
-                  {tps !== null && (() => {
-                    const bg = tps >= 50 ? "#53b3cb" : tps >= 30 ? "#9bc53d" : tps >= 15 ? "#f9c22e" : "#e01a4f";
-                    return (
-                      <span style={{ marginLeft: 6, padding: "1px 6px", borderRadius: 4, background: bg, color: "#fff", fontSize: "var(--text-meta)", fontWeight: 400, whiteSpace: "nowrap" }}>
-                        {tps.toFixed(1)} t/s
-                      </span>
-                    );
-                  })()}
+              <span style={{ display: "flex", alignItems: "center", gap: 2, fontVariantNumeric: "tabular-nums" }} title={t("i18n.estimatedTokens")}>
+                <ArrowDown size={10} strokeWidth={1.8} aria-hidden="true" />
+                {est}
+              </span>
+              {tokenSpeedEnabled && tps !== null && (
+                <span style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }} title={t("i18n.estimatedTokenSpeed")}>
+                  {tps.toFixed(1)} t/s
                 </span>
               )}
             </>
@@ -754,8 +758,8 @@ function AssistantMessageView({
         display: "flex", alignItems: "center", gap: 8, marginTop: 4,
       }}>
         {message.usage && !isStreaming && (
-          <div style={{ fontSize: "var(--text-meta)", color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>
-            {formatUsage(message.usage)}
+          <div style={{ fontSize: "var(--text-meta)", color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }} title={tokenSpeedEnabled && finalTps != null ? t("i18n.billedTokenSpeed") : undefined}>
+            {formatUsage(message.usage, tokenSpeedEnabled ? finalTps : null)}
           </div>
         )}
         {textContent && !isStreaming && (
@@ -1630,12 +1634,13 @@ function formatUsage(usage: {
   cacheRead: number;
   cacheWrite: number;
   cost: { total: number };
-}): string {
+}, tps?: number | null): string {
   const parts = [];
   if (usage.input) parts.push(`${usage.input.toLocaleString()} in`);
   if (usage.output) parts.push(`${usage.output.toLocaleString()} out`);
   if (usage.cacheRead) parts.push(`${usage.cacheRead.toLocaleString()} cache R`);
   if (usage.cacheWrite) parts.push(`${usage.cacheWrite.toLocaleString()} cache W`);
+  if (tps != null) parts.push(`${tps.toFixed(1)} t/s`);
   if (usage.cost?.total) parts.push(`$${usage.cost.total.toFixed(4)}`);
   return parts.join(" · ");
 }

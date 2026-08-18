@@ -7,6 +7,7 @@ import {
   ArchiveRestore,
   Bell,
   Cpu,
+  Gauge,
   GlobeLock,
   Info,
   Languages,
@@ -48,6 +49,8 @@ interface Props {
   onLocaleChange: (locale: Locale) => void;
   soundEnabled: boolean;
   onSoundToggle: () => void;
+  tokenSpeedEnabled: boolean;
+  onTokenSpeedToggle: () => void;
   onClose: () => void;
   onModelsChanged: () => void;
   onSessionReloaded: () => void;
@@ -79,6 +82,8 @@ export function SettingsPage({
   onLocaleChange,
   soundEnabled,
   onSoundToggle,
+  tokenSpeedEnabled,
+  onTokenSpeedToggle,
   onClose,
   onModelsChanged,
   onSessionReloaded,
@@ -278,6 +283,12 @@ export function SettingsPage({
           <div className="settings-form-label"><Bell size={16} aria-hidden="true" /><div><strong>{t("settings.completionSound")}</strong><span>{t("settings.completionSoundDescription")}</span></div></div>
           <button className="settings-switch" type="button" role="switch" aria-checked={soundEnabled} onClick={onSoundToggle} title={t("settings.completionSound")}>
             <span /><Volume2 size={15} aria-hidden="true" />
+          </button>
+        </section>
+        <section className="settings-form-section">
+          <div className="settings-form-label"><Gauge size={16} aria-hidden="true" /><div><strong>{t("settings.tokenSpeed")}</strong><span>{t("settings.tokenSpeedDescription")}</span></div></div>
+          <button className="settings-switch" type="button" role="switch" aria-checked={tokenSpeedEnabled} onClick={onTokenSpeedToggle} title={t("settings.tokenSpeed")}>
+            <span /><Gauge size={15} aria-hidden="true" />
           </button>
         </section>
         <section className="settings-form-section">
