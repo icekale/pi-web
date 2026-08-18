@@ -9,7 +9,7 @@ import {
   buildSessionContext,
   readSessionHeader,
 } from "@/lib/session-reader";
-import { sessionPathKey } from "@/lib/session-path";
+import { sessionPathKey } from "@/lib/paths";
 import { isReservedSubagentSessionName } from "@/lib/session-relations";
 import { getRpcSession } from "@/lib/rpc-manager";
 import { projectTreeForResponse } from "@/lib/project-tree";

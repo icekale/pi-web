@@ -7,7 +7,6 @@ import { getRpcSessionInfos, getRunningRpcSessionIds } from "@/lib/rpc-manager";
 import { attachSessionRelations } from "@/lib/session-relations";
 import type { SessionInfo } from "@/lib/types";
 
-export const dynamic = "force-dynamic";
 
 const SESSION_LIST_FIRST_MESSAGE_CHARS = 512;
 

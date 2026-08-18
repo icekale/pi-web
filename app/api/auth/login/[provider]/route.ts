@@ -3,7 +3,6 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { randomBytes } from "node:crypto";
 import { invalidateModelsCache } from "@/lib/models-cache";
 
-export const dynamic = "force-dynamic";
 
 // In-memory registry: loginToken -> resolve/reject for the manualCodeInput promise
 declare global {

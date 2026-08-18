@@ -16,6 +16,18 @@ test("uses a compact mobile toolbar with a floating action layer", () => {
   }
 });
 
+test("folds the mobile action layer only when toolbar icons overflow", () => {
+  assert.match(source, /const \[mobileToolbarOverflow, setMobileToolbarOverflow\] = useState\(/);
+  assert.match(source, /new ResizeObserver\(/);
+  assert.match(source, /scrollWidth\s*>\s*.*clientWidth/);
+  assert.match(source, /mobileToolbarOverflow &&[\s\S]*?data-mobile-toolbar-more="true"/);
+  assert.match(source, /!mobileToolbarOverflow[\s\S]*?renderChatToolbarActions\(true\)/);
+  assert.doesNotMatch(
+    source,
+    /\{isMobile && \(\s*<button[\s\S]*?data-mobile-toolbar-more="true"/,
+  );
+});
+
 test("keeps covered statistics and file controls out of interaction and focus", () => {
   assert.match(source, /const covered = mobile && mobileToolbarMoreOpen;/);
   assert.match(source, /disabled=\{!showChat \|\| covered\}[\s\S]*?tabIndex=\{covered \? -1 : undefined\}/);

@@ -1,7 +1,6 @@
 import { hasJsonContentType, isApiRequestAllowed, isLoopbackApiRequest } from "@/lib/request-security";
 import { readRemoteAccessSnapshot, writeRemoteAccessConfig } from "@/lib/remote-access-config";
 
-export const dynamic = "force-dynamic";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

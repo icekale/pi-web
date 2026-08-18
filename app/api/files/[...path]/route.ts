@@ -5,7 +5,7 @@ import {
   isExistingFilePathAllowed,
   isFilePathAllowed,
   isWindowsAbsolutePath,
-  normalizeSlashes,
+  toSlashPath,
 } from "@/lib/file-access";
 import {
   DOCX_PREVIEW_MAX_BYTES,
@@ -70,7 +70,7 @@ function getLanguage(filePath: string): string {
 
 function filePathFromSegments(segments: string[]): string {
   const joined = segments.join("/");
-  const slashJoined = normalizeSlashes(joined);
+  const slashJoined = toSlashPath(joined);
   if (isWindowsAbsolutePath(slashJoined)) return slashJoined;
   return "/" + joined.replace(/^\/+/, "");
 }

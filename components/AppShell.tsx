@@ -42,8 +42,7 @@ import { TaskHeader } from "./TaskHeader";
 import { DesktopConversationContext } from "./DesktopConversationContext";
 import { useTheme } from "@/hooks/useTheme";
 import { useI18n } from "@/hooks/useI18n";
-import { useIsMobile } from "@/hooks/useIsMobile";
-import { useIsWideDesktop } from "@/hooks/useIsWideDesktop";
+import { useIsMobile, useIsWideDesktop } from "@/hooks/useIsMobile";
 import { useViewportHeight } from "@/hooks/useViewportHeight";
 import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { useAudio } from "@/hooks/useAudio";
@@ -137,6 +136,9 @@ export function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
   const [mobileToolbarMoreOpen, setMobileToolbarMoreOpen] = useState(false);
+  const [mobileToolbarOverflow, setMobileToolbarOverflow] = useState(true);
+  const mobileToolbarOverflowRef = useRef(true);
+  mobileToolbarOverflowRef.current = mobileToolbarOverflow;
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false);
   const sidebarWidthRef = useRef(SIDEBAR_DEFAULT_WIDTH);
   const rightPanelWidthRef = useRef(RIGHT_PANEL_FALLBACK_WIDTH);
@@ -207,6 +209,7 @@ export function AppShell() {
   const chatInputRef = useRef<ChatInputHandle | null>(null);
   const topBarRef = useRef<HTMLDivElement>(null);
   const mobileToolbarRef = useRef<HTMLDivElement>(null);
+  const mobileToolbarMeasureRef = useRef<HTMLDivElement>(null);
 
   // Branch navigator state — populated by ChatWindow via onBranchDataChange
   const [branchTree, setBranchTree] = useState<SessionTreeNode[]>([]);
@@ -352,7 +355,7 @@ export function AppShell() {
   ) => {
     if (isMobile) setSidebarOpen(false);
     setActiveTopPanel((cur) => cur === panel ? null : panel);
-    if (isMobile && keepMobileToolbarOpen) setMobileToolbarMoreOpen(true);
+    if (isMobile && keepMobileToolbarOpen && mobileToolbarOverflowRef.current) setMobileToolbarMoreOpen(true);
   }, [isMobile]);
 
   const openSessionStatsPanel = useCallback(() => {
@@ -453,6 +456,29 @@ export function AppShell() {
   useEffect(() => {
     setMobileToolbarMoreOpen(false);
   }, [isMobile, selectedSession?.id, newSessionDraftId]);
+
+  useLayoutEffect(() => {
+    if (!isMobile) {
+      setMobileToolbarOverflow(true);
+      return;
+    }
+    const toolbar = mobileToolbarRef.current;
+    const probe = mobileToolbarMeasureRef.current;
+    if (!toolbar || !probe) return;
+
+    const measure = () => {
+      const overflowing = probe.scrollWidth > probe.clientWidth;
+      setMobileToolbarOverflow(overflowing);
+      if (!overflowing) setMobileToolbarMoreOpen(false);
+    };
+
+    const observer = new ResizeObserver(measure);
+    observer.observe(toolbar);
+    const content = probe.firstElementChild;
+    if (content) observer.observe(content);
+    measure();
+    return () => observer.disconnect();
+  }, [isMobile]);
 
   useEffect(() => {
     if (!activeTopPanel || !topBarRef.current) return;
@@ -1224,7 +1250,7 @@ export function AppShell() {
           type="button"
           onClick={() => {
             handleViewFullHistory();
-            if (mobile) setMobileToolbarMoreOpen(true);
+            if (mobile && mobileToolbarOverflow) setMobileToolbarMoreOpen(true);
           }}
           disabled={!selectedSession}
           title={selectedSession ? translate("history.full") : translate("history.unsaved")}
@@ -1331,7 +1357,7 @@ export function AppShell() {
               type="button"
               onClick={() => {
                 void handleAutoName();
-                if (mobile) setMobileToolbarMoreOpen(true);
+                if (mobile && mobileToolbarOverflow) setMobileToolbarMoreOpen(true);
               }}
               disabled={disabled}
               title={title}
@@ -1807,6 +1833,26 @@ export function AppShell() {
                 height: "100%",
               }}
             >
+              <div
+                ref={mobileToolbarMeasureRef}
+                aria-hidden="true"
+                inert
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  display: "flex",
+                  overflow: "hidden",
+                  visibility: "hidden",
+                  pointerEvents: "none",
+                }}
+              >
+                <div style={{ display: "flex", flexShrink: 0, height: "100%" }}>
+                  {renderChatToolbarActions(true)}
+                  {renderSessionStatsButton(true)}
+                  {renderMainFileToggle(true)}
+                </div>
+              </div>
+              {mobileToolbarOverflow && (
               <button
                 type="button"
                 onClick={handleMobileToolbarMoreToggle}
@@ -1832,9 +1878,11 @@ export function AppShell() {
                   <Ellipsis size={17} strokeWidth={2} aria-hidden="true" />
                 )}
               </button>
+              )}
+              {!mobileToolbarOverflow && renderChatToolbarActions(true)}
               {renderSessionStatsButton(true)}
               {renderMainFileToggle(true)}
-              {mobileToolbarMoreOpen && (
+              {mobileToolbarOverflow && mobileToolbarMoreOpen && (
                 <div
                   id="mobile-toolbar-actions"
                   role="toolbar"

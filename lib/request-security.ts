@@ -1,5 +1,6 @@
 import { isIP } from "node:net";
 import { readRemoteAccessAllowedHosts } from "./remote-access-config";
+import { isValidBasicAuthorization, isWebPasswordEnabled } from "./web-auth";
 
 function normalizeHostname(value: string): string {
   const unbracketed = value.startsWith("[") && value.endsWith("]")
@@ -98,10 +99,10 @@ export function isApiRequestOriginAllowed(request: Request): boolean {
   if (fetchSite === "cross-site") return false;
   if (!origin) return true;
 
-  const host = request.headers.get("host");
+  const host = requestHostname(request);
   if (!host) return false;
   try {
-    return normalizeHostname(new URL(origin).host) === normalizeHostname(host);
+    return normalizeHostname(new URL(origin).hostname) === host;
   } catch {
     return false;
   }
@@ -124,4 +125,36 @@ export function hasJsonContentType(request: Request): boolean {
   const mediaType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
   return mediaType === "application/json"
     || Boolean(mediaType?.startsWith("application/") && mediaType.endsWith("+json"));
+}
+
+export function getRequestSecurityRejection(request: Request): Response | undefined {
+  const pathname = new URL(request.url).pathname;
+  if (pathname !== "/" && pathname !== "/api" && !pathname.startsWith("/api/")) {
+    return undefined;
+  }
+  const isApiRequest = pathname === "/api" || pathname.startsWith("/api/");
+  const isTrustedRequest = isApiRequest
+    ? isApiRequestAllowed(request)
+    : isApiRequestHostAllowed(request);
+
+  if (!isTrustedRequest) {
+    return isApiRequest
+      ? Response.json({ error: "Untrusted API request" }, { status: 403 })
+      : new Response("Untrusted request", { status: 403 });
+  }
+
+  if (
+    isWebPasswordEnabled()
+    && !isValidBasicAuthorization(request.headers.get("authorization"))
+  ) {
+    return new Response("Authentication required", {
+      status: 401,
+      headers: {
+        "Cache-Control": "no-store",
+        "WWW-Authenticate": 'Basic realm="Pi Web", charset="UTF-8"',
+      },
+    });
+  }
+
+  return undefined;
 }

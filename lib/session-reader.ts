@@ -5,12 +5,12 @@ import {
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 import { closeSync, existsSync, openSync, readdirSync, readSync, statSync } from "fs";
-import { dirname, join, normalize as normalizePath } from "path";
+import { basename, dirname, join, normalize as normalizePath } from "path";
 import type { AgentMessage, SessionEntry, SessionHeader, SessionInfo, SessionContext } from "./types";
 import type { SessionEntry as PiSessionEntry, SessionInfo as PiSessionInfo } from "@earendil-works/pi-coding-agent";
 import { extractGoalFromEntries } from "./goal-panel";
 import { normalizeToolCalls } from "./normalize";
-import { sessionPathKey } from "./session-path";
+import { sessionPathKey } from "./paths";
 import { resolveProject, type ProjectInfo } from "./worktree";
 
 export { getAgentDir };
@@ -263,11 +263,33 @@ function getPathToIdCache(): Map<string, string> {
   return globalThis.__piPathToSessionIdCache;
 }
 
+function findSessionPathOnDisk(sessionId: string): string | null {
+  const files = collectNestedJsonl(join(getAgentDir(), "sessions"));
+  const hinted: string[] = [];
+  const rest: string[] = [];
+  for (const file of files) {
+    if (basename(file).includes(sessionId)) hinted.push(file);
+    else rest.push(file);
+  }
+  for (const file of hinted) {
+    if (readSessionHeader(file)?.id === sessionId) return file;
+  }
+  for (const file of rest) {
+    if (readSessionHeader(file)?.id === sessionId) return file;
+  }
+  return null;
+}
+
 export async function resolveSessionPath(sessionId: string): Promise<string | null> {
   const cached = getPathCache().get(sessionId);
   if (cached) return cached;
 
-  // Cache miss: scan all sessions to populate cache, then retry
+  const found = findSessionPathOnDisk(sessionId);
+  if (found) {
+    cacheSessionPath(sessionId, found);
+    return found;
+  }
+
   await listAllSessions();
   return getPathCache().get(sessionId) ?? null;
 }
@@ -276,6 +298,15 @@ export async function resolveSessionIdByPath(filePath: string): Promise<string |
   const pathKey = sessionPathKey(filePath);
   const cached = getPathToIdCache().get(pathKey);
   if (cached) return cached;
+
+  if (existsSync(filePath)) {
+    const header = readSessionHeader(filePath);
+    if (header?.id) {
+      cacheSessionPath(header.id, filePath);
+      return header.id;
+    }
+    return undefined;
+  }
 
   await listAllSessions();
   return getPathToIdCache().get(pathKey);

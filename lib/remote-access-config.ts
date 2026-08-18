@@ -6,7 +6,6 @@ import { dirname, join } from "node:path";
 import { domainToASCII } from "node:url";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { writePrivateFileAtomicSync } from "./atomic-file";
-import { PI_WEB_AUTH_USERNAME } from "./web-auth-constants";
 
 export const REMOTE_ACCESS_SCHEMA_VERSION = 1;
 export const PASSWORD_MIN_LENGTH = 12;
@@ -29,7 +28,7 @@ export type RemoteAccessSnapshot = {
   envAllowedHosts: string[];
   passwordConfigured: boolean;
   passwordSource?: RemoteAccessPasswordSource;
-  username: typeof PI_WEB_AUTH_USERNAME;
+  username: "pi";
   configError?: string;
 };
 
@@ -338,7 +337,7 @@ export function readRemoteAccessSnapshot(request?: Request): RemoteAccessSnapsho
     envAllowedHosts,
     passwordConfigured: Boolean(passwordSource),
     ...(passwordSource ? { passwordSource } : {}),
-    username: PI_WEB_AUTH_USERNAME,
+    username: "pi",
     ...(cache.kind === "invalid" ? { configError: cache.configError } : {}),
   };
 }

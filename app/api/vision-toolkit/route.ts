@@ -8,7 +8,6 @@ import {
   type VisionToolkitSettings,
 } from "@/lib/vision-toolkit-config";
 
-export const dynamic = "force-dynamic";
 
 const PROTOCOLS = new Set<VisionProtocol>(["chat_completions", "responses", "anthropic"]);
 

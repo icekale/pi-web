@@ -1,8 +1,6 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { envPasswordEnabled, hasStoredPasswordHash, verifyStoredPassword } from "./remote-access-config";
-import { PI_WEB_AUTH_USERNAME } from "./web-auth-constants";
-
-export { PI_WEB_AUTH_USERNAME };
+export const PI_WEB_AUTH_USERNAME = "pi";
 
 function hashSecret(value: string): Buffer {
   return createHash("sha256").update(value, "utf8").digest();

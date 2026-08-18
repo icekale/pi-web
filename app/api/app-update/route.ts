@@ -1,7 +1,6 @@
 import type { AppUpdateResponse } from "@/lib/api-types";
 import { getPiWebReleaseUrl, isNewerStableVersion } from "@/lib/app-update";
 
-export const dynamic = "force-dynamic";
 
 const CURRENT_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0";
 const NPM_LATEST_URL = "https://registry.npmjs.org/@agegr%2Fpi-web/latest";

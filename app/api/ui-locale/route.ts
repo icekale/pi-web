@@ -1,7 +1,6 @@
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { readUiLocale, writeUiLocale } from "@/lib/ui-locale";
 
-export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
   if (!isApiRequestAllowed(req)) {

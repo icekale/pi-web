@@ -7,7 +7,6 @@ import {
   updateProjectPreference,
 } from "@/lib/project-registry";
 
-export const dynamic = "force-dynamic";
 
 export async function GET() {
   return Response.json(

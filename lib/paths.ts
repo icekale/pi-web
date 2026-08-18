@@ -1,4 +1,4 @@
-import { normalize, parse, sep } from "path";
+import { normalize, parse, posix, sep, win32 } from "path";
 
 // ============================================================================
 // Path primitives.
@@ -42,6 +42,16 @@ export function toNativePath(p: string): string {
 /** Convert a path to forward slashes. See the form guidance above. */
 export function toSlashPath(p: string): string {
   return p.replace(/\\/g, "/");
+}
+
+export function sessionPathKey(
+  filePath: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const normalized = platform === "win32"
+    ? win32.normalize(filePath)
+    : posix.normalize(filePath);
+  return platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 
 function normalizeForComparison(p: string): string {

@@ -6,7 +6,6 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
 import { normalizeProviderBaseUrl, assertSafeDiscoveryTarget } from "@/lib/model-discovery";
 
-export const dynamic = "force-dynamic";
 
 const TEST_TIMEOUT_MS = 20_000;
 

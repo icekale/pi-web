@@ -1,7 +1,6 @@
 import { resolveModelDiscoveryAuth } from "@/lib/model-discovery-auth";
 import { assertSafeDiscoveryTarget, buildModelsListUrl, parseDiscoveredModels } from "@/lib/model-discovery";
 
-export const dynamic = "force-dynamic";
 
 const DISCOVERY_TIMEOUT_MS = 20_000;
 

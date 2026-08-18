@@ -7,15 +7,6 @@ declare global {
   var __piAdditionalAllowedRoots: Set<string> | undefined;
 }
 
-/**
- * Allowed roots are internal bookkeeping keys that are never displayed, so they
- * are stored slash-normalized for consistent Set membership. Correctness does
- * not depend on it — isPathWithinRoots() re-normalizes whatever it is given.
- */
-export function normalizeSlashes(filePath: string): string {
-  return toSlashPath(filePath);
-}
-
 export function getAdditionalAllowedRoots(): Set<string> {
   if (!globalThis.__piAdditionalAllowedRoots) {
     globalThis.__piAdditionalAllowedRoots = new Set();
@@ -25,7 +16,7 @@ export function getAdditionalAllowedRoots(): Set<string> {
 
 export function allowFileRoot(root: string): void {
   if (!root) return;
-  const normalizedRoot = normalizeSlashes(root);
+  const normalizedRoot = toSlashPath(root);
   getAdditionalAllowedRoots().add(normalizedRoot);
   globalThis.__piAllowedRootsCache?.roots.add(normalizedRoot);
 }

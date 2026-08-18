@@ -1,6 +1,5 @@
 import { readModelsConfig, writeModelsConfig } from "@/lib/models-config-store";
 
-export const dynamic = "force-dynamic";
 
 export async function GET() {
   return Response.json(readModelsConfig());

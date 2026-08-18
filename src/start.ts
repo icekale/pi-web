@@ -3,7 +3,7 @@ import {
   createMiddleware,
   createStart,
 } from "@tanstack/react-start";
-import { getRequestSecurityRejection } from "./request-security";
+import { getRequestSecurityRejection } from "@/lib/request-security";
 import { getApiMethodRejection } from "./api-methods";
 
 const requestSecurityMiddleware = createMiddleware().server(async ({ next, request }) => {

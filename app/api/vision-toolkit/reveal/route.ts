@@ -5,7 +5,6 @@ import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security"
 import { visionEnvPath } from "@/lib/vision-toolkit-config";
 import { redactVisionError } from "../route";
 
-export const dynamic = "force-dynamic";
 
 export function revealConfigFileCommand(configPath: string, platform = process.platform): {
   command: string;

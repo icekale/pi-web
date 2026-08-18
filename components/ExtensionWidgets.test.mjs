@@ -134,17 +134,28 @@ test("uses a compact key-only trigger with a placement icon", () => {
   });
 
   assert.match(html, /extension-widget-triggers/);
+  assert.match(html, /<button/);
   assert.match(html, /<svg[^>]*extension-widget-placement-icon/);
   assert.match(html, /data-direction="down"/);
   assert.doesNotMatch(html, /[\u2191\u2193]/);
   assert.match(html, /Below editor widget/);
-  assert.doesNotMatch(html, /aria-expanded/);
-  assert.match(html, /title="long-extension-widget-key - Below editor widget"/);
+  assert.match(html, /aria-expanded="false"/);
+  assert.match(html, /title="long-extension-widget-key - Below editor widget/);
   assert.match(html, /extension-widget-key/);
   assert.match(html, /extension-widget-update-pulse/);
   assert.doesNotMatch(html, /extension-widget-preview/);
   assert.doesNotMatch(html, /extension-widget-line-count/);
   assert.doesNotMatch(html, />ready</);
+});
+
+test("keeps a one-line widget collapsed as an expandable trigger", () => {
+  const html = renderWidgets({
+    widgets: [{ key: "status", lines: ["ready"], placement: "aboveEditor" }],
+  });
+
+  assert.match(html, /<button/);
+  assert.match(html, /aria-expanded="false"/);
+  assert.doesNotMatch(html, /<pre/);
 });
 
 test("keeps generic widgets independent from conversation plans", () => {

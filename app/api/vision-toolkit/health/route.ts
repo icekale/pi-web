@@ -3,7 +3,6 @@ import { readVisionToolkitSnapshot } from "@/lib/vision-toolkit-config";
 import { parseVisionHealthRequest, runVisionToolkitHealth } from "@/lib/vision-toolkit-health";
 import { redactVisionError } from "../route";
 
-export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   if (!isApiRequestAllowed(req)) {

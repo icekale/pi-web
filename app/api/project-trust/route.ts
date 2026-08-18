@@ -6,7 +6,6 @@ import { invalidateModelsCache } from "@/lib/models-cache";
 import { getProjectTrustStatus, trustProject } from "@/lib/project-trust";
 import { destroyRpcSessionsForCwd, hasBusyRpcSessionForCwd } from "@/lib/rpc-manager";
 
-export const dynamic = "force-dynamic";
 
 async function validateCwd(value: unknown): Promise<
   { cwd: string } | { response: Response }

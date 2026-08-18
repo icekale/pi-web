@@ -1,11 +1,12 @@
 import { readdirSync } from "fs";
 import { homedir } from "os";
 import path from "path";
-import { getAdditionalAllowedRoots, normalizeSlashes } from "./allowed-roots";
+import { getAdditionalAllowedRoots } from "./allowed-roots";
 import { isExistingPathWithinRoots, isPathWithinRoots } from "./path-security";
 import { listAllSessions } from "./session-reader";
-export { allowFileRoot, normalizeSlashes } from "./allowed-roots";
-export { isWindowsAbsolutePath } from "./paths";
+import { toSlashPath } from "./paths";
+export { allowFileRoot } from "./allowed-roots";
+export { isWindowsAbsolutePath, toSlashPath } from "./paths";
 
 // Short-TTL cache for the allowed-roots set. Without this, every file list/read
 // request re-scans every pi session on disk just to check access. 5s is short
@@ -25,17 +26,17 @@ export async function getAllowedFileRoots(): Promise<Set<string>> {
   const sessions = await listAllSessions();
   const roots = new Set<string>();
   for (const s of sessions) {
-    if (s.cwd) roots.add(normalizeSlashes(s.cwd));
+    if (s.cwd) roots.add(toSlashPath(s.cwd));
     // The project root (main repo shared by all worktrees) is browsable too —
     // the project dropdown lists it even when only worktrees have sessions.
-    if (s.projectRoot) roots.add(normalizeSlashes(s.projectRoot));
+    if (s.projectRoot) roots.add(toSlashPath(s.projectRoot));
   }
 
   // Also allow ~/pi-cwd-* directories created by the default-cwd endpoint.
   try {
     for (const name of readdirSync(homedir())) {
       if (/^pi-cwd-\d{8}$/.test(name)) {
-        roots.add(normalizeSlashes(path.join(homedir(), name)));
+        roots.add(toSlashPath(path.join(homedir(), name)));
       }
     }
   } catch {

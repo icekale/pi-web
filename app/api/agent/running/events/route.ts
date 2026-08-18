@@ -1,6 +1,5 @@
 import { getRunningRpcSessionIds, subscribeRunningSessions } from "@/lib/rpc-manager";
 
-export const dynamic = "force-dynamic";
 
 // GET /api/agent/running/events - SSE stream of the set of currently-running
 // session ids. Pushes an update whenever any session starts or stops working,
