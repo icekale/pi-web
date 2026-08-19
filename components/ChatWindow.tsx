@@ -698,8 +698,8 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
 
       {isEmptyNew ? (
         <div className="new-session-home flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-8">
-            <div className="w-full max-w-[720px] text-center">
+          <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-4 py-8">
+            <div className="my-auto w-full max-w-[720px] text-center">
               <div style={{
                 display: "inline-flex", alignItems: "center", justifyContent: "center",
                 width: 40, height: 40, marginBottom: 16,

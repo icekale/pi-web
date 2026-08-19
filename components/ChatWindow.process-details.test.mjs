@@ -19,6 +19,18 @@ test("renders a Codex-style new-session home", () => {
   assert.doesNotMatch(source, /margin: "0 auto -14px"/);
 });
 
+test("keeps new-session content reachable in short viewports", () => {
+  assert.match(
+    source,
+    /className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-4 py-8"/,
+  );
+  assert.match(
+    source,
+    /className="my-auto w-full max-w-\[720px\] text-center"/,
+  );
+  assert.doesNotMatch(source, /items-center justify-center overflow-y-auto/);
+});
+
 test("process details use a compact result row and stay collapsed", () => {
   assert.match(source, /className="chat-process-summary"/);
   assert.match(source, /defaultExpanded = false/);

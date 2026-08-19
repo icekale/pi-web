@@ -1353,7 +1353,16 @@ html.dark .codex-project-menu button.danger { color: #f87171; }
 .codex-sidebar-tool-heading:hover { color: var(--text); background: var(--bg-hover); }
 .codex-sidebar-spacer { flex: 1; }
 .codex-sidebar-files { min-height: 0; flex: 1; overflow: auto; }
-.codex-worktree-list { padding: 0 6px 6px 20px; }
+.codex-worktree-block {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.codex-worktree-list {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 6px 6px 20px;
+}
 .codex-worktree-row { min-height: 28px; border-radius: 5px; }
 .codex-worktree-row:hover,
 .codex-worktree-row[data-selected="true"] { background: var(--bg-hover); }

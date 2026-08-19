@@ -166,6 +166,20 @@ test("sidebar recomposition preserves worktree switching and creation", () => {
   assert.match(sidebar, /sidebar\.forceRemoveCheckout/);
 });
 
+test("long worktree lists scroll below a fixed heading", () => {
+  const block = styles.match(/\.codex-worktree-block \{([^}]*)\}/)?.[1];
+  const list = styles.match(/\.codex-worktree-list \{([^}]*)\}/)?.[1];
+
+  assert.ok(block, "missing .codex-worktree-block layout rule");
+  assert.match(block, /display:\s*flex/);
+  assert.match(block, /flex-direction:\s*column/);
+  assert.match(block, /min-height:\s*0/);
+
+  assert.ok(list, "missing .codex-worktree-list layout rule");
+  assert.match(list, /min-height:\s*0/);
+  assert.match(list, /overflow-y:\s*auto/);
+});
+
 test("searches sessions and exposes a Codex-style quick switcher", () => {
   assert.match(sidebar, /function sessionTitle\(session: SessionInfo\)/);
   assert.match(sidebar, /visibleSessions\.filter\(\(session\) =>/);
