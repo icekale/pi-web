@@ -231,6 +231,11 @@ test("manual refresh spins the header button while the forced scan runs", () => 
   assert.match(sidebar, /refreshing \? \{ animation: "spin 0\.8s linear infinite" \}/);
 });
 
+test("session completion always refreshes inventory even when a done handler is set", () => {
+  assert.match(sidebar, /if \(completed\.length\) \{[\s\S]*?onBackgroundTaskDone\?\.\(\);[\s\S]*?void loadData\(false\)/);
+  assert.doesNotMatch(sidebar, /if \(!onBackgroundTaskDone\) void loadData\(false\)/);
+});
+
 test("initial running ids establish a baseline without a second inventory request", () => {
   assert.match(sidebar, /previousRunningRef = useRef<Set<string> \| null>\(null\)/);
   assert.match(sidebar, /previousRawRunningRef = useRef<Set<string> \| null>\(null\)/);

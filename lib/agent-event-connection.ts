@@ -39,18 +39,36 @@ export interface AgentEventConnectionOptions {
   shouldMaintain(sessionId: string): boolean;
   readinessTimeoutMs: number;
   reconnectDelayMs: number;
+  staleAfterMs?: number;
+  now?: () => number;
   onUnexpectedError?(error: unknown): void;
 }
 
+export interface EnsureConnectedOptions {
+  force?: boolean;
+}
+
 const EVENT_SOURCE_OPEN = 1;
+const DEFAULT_STALE_AFTER_MS = 45_000;
 
 /** Owns the EventSource, agent-readiness handshake, and passive reconnect. */
 export class AgentEventConnection {
   private current: Connection | null = null;
   private retry: { sessionId: string; timer: ReturnType<typeof setTimeout> } | null = null;
   private retryGeneration = 0;
+  private lastEventAt = 0;
 
   constructor(private readonly options: AgentEventConnectionOptions) {}
+
+  private now(): number {
+    return this.options.now?.() ?? Date.now();
+  }
+
+  private isStale(): boolean {
+    const limit = this.options.staleAfterMs ?? DEFAULT_STALE_AFTER_MS;
+    if (limit <= 0) return false;
+    return this.now() - this.lastEventAt >= limit;
+  }
 
   close(): void {
     this.stopRetrying();
@@ -71,16 +89,24 @@ export class AgentEventConnection {
     });
   }
 
-  async ensureConnected(sessionId: string): Promise<void> {
+  async ensureConnected(sessionId: string, options: EnsureConnectedOptions = {}): Promise<void> {
+    let force = Boolean(options.force);
     while (true) {
       let connection = this.current;
       if (!connection || connection.sessionId !== sessionId) {
         connection = this.open(sessionId);
+        force = false;
       } else if (
         connection.attempt.ready
         && connection.source.readyState === EVENT_SOURCE_OPEN
+        && !force
+        && !this.isStale()
       ) {
         return;
+      } else if (connection.attempt.ready && (force || this.isStale())) {
+        this.discard(connection, new AgentEventConnectionError("closed"));
+        force = false;
+        continue;
       }
 
       await connection.attempt.promise;
@@ -88,7 +114,7 @@ export class AgentEventConnection {
         if (this.current?.sessionId === sessionId) continue;
         throw new AgentEventConnectionError("closed");
       }
-      if (connection.source.readyState === EVENT_SOURCE_OPEN) return;
+      if (connection.source.readyState === EVENT_SOURCE_OPEN && !this.isStale()) return;
 
       // A once-ready EventSource may otherwise remain CONNECTING indefinitely.
       this.discard(connection, new AgentEventConnectionError("closed"));
@@ -97,6 +123,7 @@ export class AgentEventConnection {
 
   private open(sessionId: string): Connection {
     if (this.current) this.discard(this.current, new AgentEventConnectionError("closed"));
+    this.lastEventAt = this.now();
 
     let source: AgentEventSourceLike;
     try {
@@ -139,6 +166,7 @@ export class AgentEventConnection {
 
     source.onmessage = (message) => {
       if (this.current !== connection) return;
+      this.lastEventAt = this.now();
       let event: AgentEventLike;
       try {
         event = JSON.parse(message.data) as AgentEventLike;
@@ -146,6 +174,9 @@ export class AgentEventConnection {
         return;
       }
 
+      if (event.type === "heartbeat") {
+        return;
+      }
       if (event.type === "connected") {
         attempt.ready = true;
         attempt.succeed();

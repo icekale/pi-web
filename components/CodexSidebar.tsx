@@ -502,7 +502,7 @@ export function CodexSidebar({
     }
     if (completed.length) {
       onBackgroundTaskDone?.();
-      if (!onBackgroundTaskDone) void loadData(false);
+      void loadData(false);
     }
     previousRunningRef.current = activeRootIds;
     onRunningSessionIdsChange?.(activeRootIds);

@@ -166,6 +166,7 @@ const AGENT_STATE_RECONCILE_MS = 15_000;
 const BASH_STATE_RECONCILE_MS = 1_000;
 const EVENT_STREAM_READY_TIMEOUT_MS = 60_000;
 const EVENT_STREAM_RECONNECT_DELAY_MS = 1_000;
+const EVENT_STREAM_STALE_MS = 45_000;
 const MAX_NOTICES = 5;
 const NOTICE_VISIBLE_MS = 5000;
 const NOTICE_EXIT_ANIMATION_MS = 180;
@@ -381,6 +382,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       ),
       readinessTimeoutMs: EVENT_STREAM_READY_TIMEOUT_MS,
       reconnectDelayMs: EVENT_STREAM_RECONNECT_DELAY_MS,
+      staleAfterMs: EVENT_STREAM_STALE_MS,
       onUnexpectedError: (error) => {
         console.error("Failed to maintain the agent event stream:", error);
       },
@@ -688,8 +690,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     eventConnectionRef.current?.close();
   }, []);
 
-  const ensureEventsConnected = useCallback((sid: string) => (
-    eventConnectionRef.current!.ensureConnected(sid)
+  const ensureEventsConnected = useCallback((sid: string, force = false) => (
+    eventConnectionRef.current!.ensureConnected(sid, { force })
   ), []);
 
   const maintainEventsConnected = useCallback((sid: string) => {
@@ -1021,6 +1023,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (busy) {
         sdkAgentActiveRef.current = Boolean(state.isStreaming);
         rpcPromptPendingRef.current = Boolean(state.isPromptRunning);
+        maintainEventsConnected(sid);
         return;
       }
       if (!agentRunningRef.current) return;
@@ -1034,7 +1037,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } catch {
       // Network still down — the next poll / visibility / online tick retries.
     }
-  }, [finishPromptWithoutStream]);
+  }, [finishPromptWithoutStream, maintainEventsConnected]);
 
   // Recovery net for missed SSE events: while the agent is running, verify
   // against the server periodically and whenever the tab returns to the
@@ -1388,7 +1391,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             await sendAgentCommand(sid, { type: "set_model", provider: selectedModel.provider, modelId: selectedModel.modelId });
           }
         }
-        await ensureEventsConnected(sid);
+        await ensureEventsConnected(sid, true);
         promptRequestStarted = true;
         const promptResult = await sendAgentCommand<{ promptGeneration?: number } | null>(sid, {
           type: "prompt",
@@ -1401,7 +1404,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         promoteNewSession(1, message);
       } else if (session) {
         sentSessionId = session.id;
-        await ensureEventsConnected(session.id);
+        await ensureEventsConnected(session.id, true);
         promptRequestStarted = true;
         const promptResult = await sendAgentCommand<{ promptGeneration?: number } | null>(session.id, {
           type: "prompt",

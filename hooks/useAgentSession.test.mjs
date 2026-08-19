@@ -122,6 +122,7 @@ test("a rejected submission preserves a different run reported by the server", (
   assert.match(reconcileSource, /sessionIdRef\.current !== sid/);
   assert.match(reconcileSource, /if \(busy\) \{[\s\S]*?sdkAgentActiveRef\.current = Boolean\(state\.isStreaming\)/);
   assert.match(reconcileSource, /rpcPromptPendingRef\.current = Boolean\(state\.isPromptRunning\)/);
+  assert.match(reconcileSource, /if \(busy\) \{[\s\S]*?maintainEventsConnected\(sid\)/);
   assert.match(reconcileSource, /if \(!agentRunningRef\.current\) return;[\s\S]*?finishPromptWithoutStream/);
 });
 
@@ -259,8 +260,10 @@ test("delegates event stream readiness and hides an empty agent phase", () => {
 
   assert.match(source, /new AgentEventConnection\(\{/);
   assert.match(source, /shouldMaintain: \(sid\)[\s\S]*?sessionIdRef\.current === sid/);
-  assert.match(ensureSource, /eventConnectionRef\.current!\.ensureConnected\(sid\)/);
+  assert.match(ensureSource, /eventConnectionRef\.current!\.ensureConnected\(sid, \{ force \}\)/);
   assert.match(ensureSource, /eventConnectionRef\.current!\.maintain\(sid\)/);
+  assert.match(source, /await ensureEventsConnected\(sid, true\)/);
+  assert.match(source, /await ensureEventsConnected\(session\.id, true\)/);
   assert.match(chatWindowSource, /const hasStreamingContent = Boolean\(streamState\.streamingMessage\?\.content\.length\)/);
   assert.match(chatWindowSource, /streamState\.isStreaming && hasStreamingContent && streamState\.streamingMessage/);
   assert.match(chatWindowSource, /agentRunning && !hasStreamingContent && agentPhase/);
