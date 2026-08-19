@@ -136,11 +136,20 @@ test("lays out attach, access, model, and reasoning like the reference composer"
     ),
   );
 
-  assert.match(html, />Full access</);
+  assert.match(html, />All tools</);
+  assert.match(html, /title="Change what the agent can do: All tools\. All built-in tools, including search"/);
   assert.match(html, />grok-4\.6</);
   assert.match(html, /data-thinking-badge="high"/);
   assert.doesNotMatch(html, />Compact context</);
   assert.doesNotMatch(html, /aria-label="More controls"/);
+});
+
+test("tool preset menu copy names the allowed actions", async () => {
+  const source = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
+  assert.match(source, /chat\.presetOffHint/);
+  assert.match(source, /chat\.presetReadOnlyHint/);
+  assert.match(source, /chat\.presetDefaultHint/);
+  assert.match(source, /chat\.presetFullHint/);
 });
 
 test("shows and locks the optimistic model while a switch is pending", () => {

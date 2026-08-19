@@ -136,6 +136,17 @@ const TOOL_PRESET_LABEL_KEYS: Record<ToolPresetLabel, string> = {
   default: "chat.presetDefault",
   full: "chat.presetFull",
 };
+const TOOL_PRESET_HINT_KEYS: Record<ToolPresetLabel, string> = {
+  off: "chat.presetOffHint",
+  "read-only": "chat.presetReadOnlyHint",
+  default: "chat.presetDefaultHint",
+  full: "chat.presetFullHint",
+};
+
+function toolPresetLabelFor(preset?: ToolPreset | null): ToolPresetLabel {
+  const value = preset ?? "default";
+  return TOOL_PRESETS.find((label) => TOOL_PRESET_MAP[label] === value) ?? "default";
+}
 const COMPOSITION_END_ENTER_GRACE_MS = 100;
 const MODEL_FILTER_THRESHOLD = 8;
 const MODEL_OPTION_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
@@ -1691,6 +1702,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     ? (modelOptions.find((o) => o.modelId === model.modelId && o.provider === model.provider)?.name ?? model.modelId)
     : null;
   const currentName = displayModelName;
+  const activeToolPresetLabel = toolPresetLabelFor(toolPreset);
+  const toolPresetControlLabel = `${t("chat.changeToolPreset")}: ${t(TOOL_PRESET_LABEL_KEYS[activeToolPresetLabel])}. ${t(TOOL_PRESET_HINT_KEYS[activeToolPresetLabel])}`;
 
   const compactSavedTokens = compactResult
     ? Math.max(0, compactResult.tokensBefore - compactResult.estimatedTokensAfter)
@@ -2315,8 +2328,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   setThinkingMenuOpen(false);
                   setMoreMenuOpen((open) => !open);
                 }}
-                title={t("chat.changeToolPreset")}
-                aria-label={t("chat.changeToolPreset")}
+                title={toolPresetControlLabel}
+                aria-label={toolPresetControlLabel}
                 aria-expanded={moreMenuOpen}
                 style={{
                   minWidth: 0,
@@ -2328,12 +2341,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               >
                 <Shield size={13} strokeWidth={2} aria-hidden="true" />
                 <span className="composer-access-label" style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {t(TOOL_PRESET_LABEL_KEYS[(Object.entries(TOOL_PRESET_MAP).find(([, v]) => v === (toolPreset ?? "default"))?.[0] ?? "default") as typeof TOOL_PRESETS[number]])}
+                  {t(TOOL_PRESET_LABEL_KEYS[activeToolPresetLabel])}
                 </span>
                 <ChevronDown className="composer-access-chevron" size={12} strokeWidth={2} aria-hidden="true" style={{ opacity: 0.7 }} />
               </button>
               {moreMenuOpen && (
-                <div className="composer-menu" style={{ left: 0 }}>
+                <div className="composer-menu" style={{ left: 0, minWidth: 260 }}>
                   {TOOL_PRESETS.map((lvl) => {
                     const preset = TOOL_PRESET_MAP[lvl];
                     const isActive = (toolPreset ?? "default") === preset;
@@ -2346,8 +2359,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                           if (!isActive) onToolPresetChange(preset);
                         }}
                         style={{
-                          display: "flex", alignItems: "center", gap: 8,
-                          width: "100%", padding: "7px 12px",
+                          display: "flex", alignItems: "flex-start", gap: 8,
+                          width: "100%", padding: "8px 12px",
                           background: isActive ? "var(--bg-selected)" : "none",
                           border: "none",
                           color: isActive ? "var(--text)" : "var(--text-muted)",
@@ -2356,9 +2369,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                         }}
                       >
                         {isActive
-                          ? <Check size={10} strokeWidth={2} aria-hidden="true" style={{ color: "var(--accent)", flexShrink: 0 }} />
+                          ? <Check size={10} strokeWidth={2} aria-hidden="true" style={{ color: "var(--accent)", flexShrink: 0, marginTop: 3 }} />
                           : <span style={{ width: 10, flexShrink: 0 }} />}
-                        <span>{t(TOOL_PRESET_LABEL_KEYS[lvl])}</span>
+                        <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+                          <span>{t(TOOL_PRESET_LABEL_KEYS[lvl])}</span>
+                          <span style={{ fontSize: "var(--text-meta)", color: "var(--text-dim)", fontWeight: 400, lineHeight: 1.35 }}>
+                            {t(TOOL_PRESET_HINT_KEYS[lvl])}
+                          </span>
+                        </span>
                       </button>
                     );
                   })}
