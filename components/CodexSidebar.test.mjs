@@ -33,7 +33,7 @@ test("new task keeps its shortcut accessible without a visible key hint", () => 
 
 test("keeps the search field compact until requested", () => {
   assert.match(styles, /\.codex-sidebar-search-wrap\s*\{[\s\S]*?height:\s*32px;[\s\S]*?margin:\s*0 10px 5px;[\s\S]*?flex-shrink:\s*0;/);
-  assert.match(styles, /\.codex-sidebar-new-task\s*\{[\s\S]*?height:\s*30px;[\s\S]*?background: var\(--bg-panel\);/);
+  assert.match(styles, /\.codex-sidebar-new-task\s*\{[\s\S]*?height:\s*34px;[\s\S]*?background: var\(--bg-panel\);/);
   assert.match(sidebar, /projectSearchOpen && \(/);
   assert.doesNotMatch(styles, /\.codex-sidebar-search-shortcut/);
   assert.doesNotMatch(sidebar, /<kbd>⌘K<\/kbd>/);
@@ -157,6 +157,20 @@ test("recent session rows preserve activity, selection, and session management",
   assert.match(sidebar, /method: "DELETE"/);
   assert.match(sidebar, /setRecentOpen\(\(open\) => !open\)/);
   assert.match(sidebar, /aria-expanded=\{recentOpen\}/);
+});
+
+test("desktop sidebar rows keep more air without changing type", () => {
+  assert.match(styles, /\.codex-sidebar-section-heading \{[\s\S]*?height: 36px;/);
+  assert.match(styles, /\.codex-sidebar-recent \{[\s\S]*?border-bottom: 1px solid var\(--border\);/);
+  assert.match(styles, /\.codex-sidebar-recent > \[role="list"\] \{[\s\S]*?padding: 6px 8px 12px;/);
+  assert.match(styles, /\.codex-sidebar-project-list \{[\s\S]*?padding: 10px 8px 10px;/);
+  assert.match(styles, /\.codex-recent-session-row \{ height: 38px; \}/);
+  assert.match(styles, /\.codex-project \{ margin-bottom: 4px; \}/);
+  assert.match(styles, /\.codex-project-row \{[\s\S]*?min-height: 36px;/);
+  assert.match(styles, /\.codex-project-main \{[\s\S]*?height: 36px;/);
+  assert.match(styles, /\.codex-session-row \{[\s\S]*?height: 34px;/);
+  assert.match(styles, /\.codex-session-main \{[\s\S]*?height: 34px;/);
+  assert.match(styles, /@media \(max-width: 640px\)[\s\S]*?\.codex-session-row,[\s\S]*?height: 40px;/);
 });
 
 test("sidebar buttons inherit family only so Recent matches Projects type", () => {
