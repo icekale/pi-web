@@ -670,33 +670,6 @@ export function CodexSidebar({
         <span>{t("sidebar.newTask")}</span>
       </button>
 
-      <div className="codex-sidebar-workspace-toolbar">
-        <div className="codex-sidebar-workspace-title">{t("sidebar.projects")}</div>
-        <div className="codex-sidebar-workspace-actions">
-          <IconButton label={t("sidebar.searchProjects")} onClick={toggleProjectSearch}>
-            <Search className="codex-sidebar-search-trigger" size={15} aria-hidden="true" />
-          </IconButton>
-          <IconButton label={t("sidebar.addProject")} onClick={() => setDirectoryPickerOpen(true)}>
-            <FolderPlus size={15} aria-hidden="true" />
-          </IconButton>
-          {onToggleSidebar ? (
-            <IconButton label={t("sidebar.hide")} onClick={onToggleSidebar}>
-              <PanelLeft size={15} aria-hidden="true" />
-            </IconButton>
-          ) : null}
-        </div>
-      </div>
-
-      {projectSearchOpen && (
-        <div className="codex-sidebar-search-wrap">
-          <Search size={14} aria-hidden="true" />
-          <input ref={projectSearchInputRef} value={filter} onChange={(event) => setFilter(event.target.value)} placeholder={t("sidebar.searchProjects")} aria-label={t("sidebar.searchProjects")} />
-          <IconButton label={t("i18n.close")} onClick={toggleProjectSearch}>
-            <X size={14} aria-hidden="true" />
-          </IconButton>
-        </div>
-      )}
-
       <section className="codex-sidebar-section codex-sidebar-recent">
         <button type="button" className="codex-sidebar-tool-heading codex-sidebar-section-heading" onClick={() => setRecentOpen((open) => !open)} aria-expanded={recentOpen}>
           <Chevron open={recentOpen} />
@@ -734,6 +707,33 @@ export function CodexSidebar({
       </section>
 
       <section className="codex-sidebar-section">
+        <div className="codex-sidebar-workspace-toolbar">
+          <div className="codex-sidebar-workspace-title">{t("sidebar.projects")}</div>
+          <div className="codex-sidebar-workspace-actions">
+            <IconButton label={t("sidebar.searchProjects")} onClick={toggleProjectSearch}>
+              <Search className="codex-sidebar-search-trigger" size={15} aria-hidden="true" />
+            </IconButton>
+            <IconButton label={t("sidebar.addProject")} onClick={() => setDirectoryPickerOpen(true)}>
+              <FolderPlus size={15} aria-hidden="true" />
+            </IconButton>
+            {onToggleSidebar ? (
+              <IconButton label={t("sidebar.hide")} onClick={onToggleSidebar}>
+                <PanelLeft size={15} aria-hidden="true" />
+              </IconButton>
+            ) : null}
+          </div>
+        </div>
+
+        {projectSearchOpen && (
+          <div className="codex-sidebar-search-wrap">
+            <Search size={14} aria-hidden="true" />
+            <input ref={projectSearchInputRef} value={filter} onChange={(event) => setFilter(event.target.value)} placeholder={t("sidebar.searchProjects")} aria-label={t("sidebar.searchProjects")} />
+            <IconButton label={t("i18n.close")} onClick={toggleProjectSearch}>
+              <X size={14} aria-hidden="true" />
+            </IconButton>
+          </div>
+        )}
+
         <div className="codex-sidebar-project-list" role="list">
           {loading && <div className="codex-sidebar-empty">{t("sidebar.loading")}</div>}
           {error && <div className="codex-sidebar-error">{error}</div>}

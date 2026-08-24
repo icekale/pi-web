@@ -140,6 +140,15 @@ test("recent section renders before projects", () => {
   assert.ok(recentIndex < projectIndex, "recent should render before projects");
 });
 
+test("projects heading sits with the project list, after recent", () => {
+  const recentIndex = sidebar.indexOf('className="codex-sidebar-section codex-sidebar-recent"');
+  const toolbarIndex = sidebar.indexOf('className="codex-sidebar-workspace-toolbar"');
+  const projectIndex = sidebar.indexOf('className="codex-sidebar-project-list"');
+  assert.ok(recentIndex >= 0 && toolbarIndex >= 0 && projectIndex >= 0);
+  assert.ok(recentIndex < toolbarIndex, "projects heading should follow recent");
+  assert.ok(toolbarIndex < projectIndex, "projects heading should sit above the project list");
+});
+
 test("project rows expand to list their sessions", () => {
   assert.match(sidebar, /const matchingSessions = filterProjectSessions\(project, filterQuery\)/);
   assert.match(sidebar, /className="codex-project-sessions"/);
