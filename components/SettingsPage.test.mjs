@@ -12,41 +12,27 @@ test("AppShell exposes one unified settings entry", () => {
   assert.doesNotMatch(shell, /<ModelsConfig|<SkillsConfig|<PluginsConfig/);
 });
 
-test("settings embeds the model, skill, plugin, vision, and remote modules", () => {
+test("settings embeds the model, skill, plugin, and remote modules", () => {
   assert.match(settings, /<ModelsConfig onControllerChange=\{setModelsController\} \/>/);
   assert.match(settings, /<SkillsConfig cwd=\{cwd\} onControllerChange=\{setSkillsController\} \/>/);
   assert.match(settings, /onControllerChange=\{setPluginsController\}/);
-  assert.match(settings, /<VisionToolkitConfig onControllerChange=\{setVisionController\} \/>/);
   assert.match(settings, /<RemoteAccessConfig onControllerChange=\{setRemoteController\} \/>/);
-  assert.match(settings, /type SettingsSection = "general" \| "remote" \| "archived" \| "models" \| "skills" \| "plugins" \| "vision"/);
+  assert.match(settings, /type SettingsSection = "general" \| "remote" \| "archived" \| "models" \| "skills" \| "plugins"/);
+  assert.doesNotMatch(settings, /VisionToolkit|vision-toolkit|ScanEye|section === "vision"/);
   assert.doesNotMatch(settings, /id: "project"/);
 });
 
-test("remote access sits after vision and does not require a project", () => {
-  assert.match(settings, /id: "vision", label: t\("vision\.nav"\), disabled: false \},\s*\{ id: "remote", label: t\("remote\.nav"\), disabled: false \}/);
+test("remote access follows plugins and does not require a project", () => {
+  assert.match(settings, /id: "plugins"[\s\S]*id: "remote"/);
   assert.match(settings, /id: "remote", label: t\("remote\.nav"\), disabled: false/);
   assert.match(settings, /GlobeLock/);
   assert.match(settings, /section === "remote"/);
   assert.match(settings, /setRemoteController/);
 });
 
-test("vision settings sit after plugins and do not require a project", () => {
-  assert.match(settings, /id: "plugins"[\s\S]*id: "vision"/);
-  assert.match(settings, /id: "vision", label: t\("vision\.nav"\), disabled: false/);
-  assert.match(settings, /ScanEye/);
-  assert.match(settings, /section === "vision"/);
-  assert.match(settings, /setVisionController/);
-});
-
-test("vision header reveals the env file without opening it in the app", () => {
-  assert.match(settings, /t\("vision\.openConfig"\)/);
-  assert.match(settings, /visionController\?\.reveal\(\)/);
-  assert.doesNotMatch(settings, /\/api\/files\/.*vision/);
-});
-
 test("settings guards every exit path behind one discard confirmation", () => {
   assert.match(settings, /const requestCloseOrNavigate = useCallback\(/);
-  assert.match(settings, /if \(modelsController\?\.dirty \|\| visionController\?\.dirty \|\| remoteController\?\.dirty\)/);
+  assert.match(settings, /if \(modelsController\?\.dirty \|\| remoteController\?\.dirty\)/);
   assert.match(settings, /setPendingExit\(\(\) => action\)/);
   assert.match(settings, /setDiscardDialogOpen\(true\)/);
   assert.match(settings, /onClick=\{\(\) => requestCloseOrNavigate\(close\)\}/);
@@ -75,7 +61,6 @@ test("settings registers one combined back handler with AppShell", () => {
 
 test("discard restores the baseline before completing the pending navigation", () => {
   assert.match(settings, /modelsController\?\.discard\(\);/);
-  assert.match(settings, /visionController\?\.discard\(\);/);
   assert.match(settings, /remoteController\?\.discard\(\);/);
   assert.match(settings, /setModelsController\(null\);/);
   assert.match(settings, /action\?\.\(\);/);

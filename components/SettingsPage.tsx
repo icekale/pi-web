@@ -15,7 +15,6 @@ import {
   Monitor,
   Moon,
   Plug,
-  ScanEye,
   SlidersHorizontal,
   Sun,
   Volume2,
@@ -33,11 +32,10 @@ import type { ModelsDraftController } from "./models-config/models-config-types"
 import type { SettingsSectionController } from "./resource-settings/resource-settings-types";
 import { PluginsConfig } from "./PluginsConfig";
 import { SkillsConfig } from "./SkillsConfig";
-import { VisionToolkitConfig, type VisionDraftController } from "./VisionToolkitConfig";
 import { RemoteAccessConfig, type RemoteDraftController } from "./RemoteAccessConfig";
 import { DialogShell } from "./DialogShell";
 
-type SettingsSection = "general" | "remote" | "archived" | "models" | "skills" | "plugins" | "vision";
+type SettingsSection = "general" | "remote" | "archived" | "models" | "skills" | "plugins";
 
 interface Props {
   cwd: string | null;
@@ -66,7 +64,6 @@ function SectionIcon({ section }: { section: SettingsSection }) {
     models: Cpu,
     skills: Layers3,
     plugins: Plug,
-    vision: ScanEye,
   };
   const Icon = icons[section];
   return <Icon size={16} strokeWidth={1.8} aria-hidden="true" />;
@@ -102,7 +99,6 @@ export function SettingsPage({
   const [modelsController, setModelsController] = useState<ModelsDraftController | null>(null);
   const [skillsController, setSkillsController] = useState<SettingsSectionController | null>(null);
   const [pluginsController, setPluginsController] = useState<SettingsSectionController | null>(null);
-  const [visionController, setVisionController] = useState<VisionDraftController | null>(null);
   const [remoteController, setRemoteController] = useState<RemoteDraftController | null>(null);
   const [discardDialogOpen, setDiscardDialogOpen] = useState(false);
   const [pendingExit, setPendingExit] = useState<(() => void) | null>(null);
@@ -115,26 +111,24 @@ export function SettingsPage({
   // One exit-request path: every Settings close/navigation action goes through
   // here so unsaved custom model drafts are never lost silently.
   const requestCloseOrNavigate = useCallback((action: () => void) => {
-    if (modelsController?.dirty || visionController?.dirty || remoteController?.dirty) {
+    if (modelsController?.dirty || remoteController?.dirty) {
       setPendingExit(() => action);
       setDiscardDialogOpen(true);
     } else {
       action();
     }
-  }, [modelsController, remoteController, visionController]);
+  }, [modelsController, remoteController]);
 
   const handleDiscardConfirm = useCallback(() => {
     const action = pendingExit;
     setDiscardDialogOpen(false);
     setPendingExit(null);
     setModelsController(null);
-    setVisionController(null);
     setRemoteController(null);
     modelsController?.discard();
-    visionController?.discard();
     remoteController?.discard();
     action?.();
-  }, [modelsController, pendingExit, remoteController, visionController]);
+  }, [modelsController, pendingExit, remoteController]);
 
   const activeController = section === "models"
     ? modelsController
@@ -142,11 +136,9 @@ export function SettingsPage({
       ? skillsController
       : section === "plugins"
         ? pluginsController
-        : section === "vision"
-          ? visionController
-          : section === "remote"
-            ? remoteController
-            : null;
+        : section === "remote"
+          ? remoteController
+          : null;
 
   useEffect(() => {
     closeButtonRef.current?.focus();
@@ -165,13 +157,13 @@ export function SettingsPage({
 
   const handleSettingsBack = useCallback((): boolean => {
     if (activeController?.handleBack()) return true;
-    if (modelsController?.dirty || visionController?.dirty || remoteController?.dirty) {
+    if (modelsController?.dirty || remoteController?.dirty) {
       setPendingExit(() => close);
       setDiscardDialogOpen(true);
       return true;
     }
     return false;
-  }, [activeController, close, modelsController, remoteController, visionController]);
+  }, [activeController, close, modelsController, remoteController]);
 
   useEffect(() => {
     onRegisterSettingsBack(handleSettingsBack);
@@ -246,7 +238,6 @@ export function SettingsPage({
     { id: "models", label: t("common.models"), disabled: false },
     { id: "skills", label: t("common.skills"), disabled: !cwd },
     { id: "plugins", label: t("common.plugins"), disabled: !cwd },
-    { id: "vision", label: t("vision.nav"), disabled: false },
     { id: "remote", label: t("remote.nav"), disabled: false },
   ];
 
@@ -344,8 +335,6 @@ export function SettingsPage({
     content = <ModelsConfig onControllerChange={setModelsController} />;
   } else if (section === "remote") {
     content = <RemoteAccessConfig onControllerChange={setRemoteController} />;
-  } else if (section === "vision") {
-    content = <VisionToolkitConfig onControllerChange={setVisionController} />;
   } else if (!cwd) {
     content = (
       <div className="settings-page-empty">
@@ -379,15 +368,6 @@ export function SettingsPage({
         <header className="settings-page-header">
           <h2 id="settings-page-title">{t("common.settings")}</h2>
           <div className="settings-page-header-actions">
-            {section === "vision" && (
-              <button
-                type="button"
-                className="settings-page-header-text"
-                onClick={() => visionController?.reveal()}
-              >
-                {t("vision.openConfig")}
-              </button>
-            )}
             <button
               ref={closeButtonRef}
               type="button"
