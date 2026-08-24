@@ -697,6 +697,42 @@ export function CodexSidebar({
         </div>
       )}
 
+      <section className="codex-sidebar-section codex-sidebar-recent">
+        <button type="button" className="codex-sidebar-tool-heading codex-sidebar-section-heading" onClick={() => setRecentOpen((open) => !open)} aria-expanded={recentOpen}>
+          <Chevron open={recentOpen} />
+          <span>{t("sidebar.recent")}</span>
+        </button>
+        {recentOpen && (
+        <div role="list">
+          {recentSessions.map(({ session, projectLabel }) => (
+            <SessionRow
+              key={session.id}
+              session={session}
+              selected={session.id === selectedSessionId}
+              running={activeRootIds.has(session.id)}
+              runningSubagentCount={(subagentsByRoot.get(session.id) ?? []).filter((child) => runningIds.has(child.id)).length}
+              unread={unreadIds.has(session.id)}
+              variant="recent"
+              projectLabel={projectLabel}
+              relativeTime={formatRelativeTime(session.modified, locale)}
+              onSelect={() => selectSession(session)}
+              onChanged={() => void loadData(false)}
+              onDeleted={() => { onSessionDeleted?.(session.id); void loadData(false); }}
+              onArchive={() => {
+                setArchivedIds((current) => new Set(current).add(session.id));
+                setUnreadIds((current) => {
+                  if (!current.has(session.id)) return current;
+                  const next = new Set(current);
+                  next.delete(session.id);
+                  return next;
+                });
+              }}
+            />
+          ))}
+        </div>
+        )}
+      </section>
+
       <section className="codex-sidebar-section">
         <div className="codex-sidebar-project-list" role="list">
           {loading && <div className="codex-sidebar-empty">{t("sidebar.loading")}</div>}
@@ -833,42 +869,6 @@ export function CodexSidebar({
             );
           })}
         </div>
-      </section>
-
-      <section className="codex-sidebar-section codex-sidebar-recent">
-        <button type="button" className="codex-sidebar-tool-heading codex-sidebar-section-heading" onClick={() => setRecentOpen((open) => !open)} aria-expanded={recentOpen}>
-          <Chevron open={recentOpen} />
-          <span>{t("sidebar.recent")}</span>
-        </button>
-        {recentOpen && (
-        <div role="list">
-          {recentSessions.map(({ session, projectLabel }) => (
-            <SessionRow
-              key={session.id}
-              session={session}
-              selected={session.id === selectedSessionId}
-              running={activeRootIds.has(session.id)}
-              runningSubagentCount={(subagentsByRoot.get(session.id) ?? []).filter((child) => runningIds.has(child.id)).length}
-              unread={unreadIds.has(session.id)}
-              variant="recent"
-              projectLabel={projectLabel}
-              relativeTime={formatRelativeTime(session.modified, locale)}
-              onSelect={() => selectSession(session)}
-              onChanged={() => void loadData(false)}
-              onDeleted={() => { onSessionDeleted?.(session.id); void loadData(false); }}
-              onArchive={() => {
-                setArchivedIds((current) => new Set(current).add(session.id));
-                setUnreadIds((current) => {
-                  if (!current.has(session.id)) return current;
-                  const next = new Set(current);
-                  next.delete(session.id);
-                  return next;
-                });
-              }}
-            />
-          ))}
-        </div>
-        )}
       </section>
 
       {selectedProject && !selectedProject.archived && !selectedProject.removed && worktrees.length > 0 && (

@@ -415,7 +415,7 @@ export const zhCNLocale: LocalePlugin = {
     "chat.thinkingShortMinimal": "最低",
     "chat.thinkingShortLow": "低",
     "chat.thinkingShortMedium": "中",
-    "chat.thinkingShortHigh": "最高",
+    "chat.thinkingShortHigh": "高",
     "chat.thinkingShortXhigh": "超高",
     "chat.thinkingShortMax": "最大",
     "chat.thinkingUseDefault": "使用 pi 默认设置",

@@ -132,6 +132,14 @@ test("desktop sidebar exposes new task, projects, and recent sessions", () => {
   assert.match(sidebar, /recentSessions\.map/);
 });
 
+test("recent section renders before projects", () => {
+  const recentIndex = sidebar.indexOf('className="codex-sidebar-section codex-sidebar-recent"');
+  const projectIndex = sidebar.indexOf('className="codex-sidebar-project-list"');
+  assert.ok(recentIndex >= 0, "missing recent section");
+  assert.ok(projectIndex >= 0, "missing project list");
+  assert.ok(recentIndex < projectIndex, "recent should render before projects");
+});
+
 test("project rows expand to list their sessions", () => {
   assert.match(sidebar, /const matchingSessions = filterProjectSessions\(project, filterQuery\)/);
   assert.match(sidebar, /className="codex-project-sessions"/);
