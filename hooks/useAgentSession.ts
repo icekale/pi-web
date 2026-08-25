@@ -532,7 +532,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   // textDeltaBatcher is a stable ref-owned instance; it must be a dependency
   // so the flush inside loadSession always sees the current instance.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [textDeltaBatcher]);
 
   const loadContext = useCallback(async (sid: string, leafId: string | null, before?: string | null) => {

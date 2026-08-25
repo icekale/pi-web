@@ -1,7 +1,6 @@
 import {
   SessionManager,
   buildContextEntries as piBuildContextEntries,
-  buildSessionContext as piBuildSessionContext,
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 import { closeSync, existsSync, openSync, readdirSync, readSync, statSync } from "fs";
@@ -424,6 +423,35 @@ export function sliceActiveBranch(
   return chain;
 }
 
+function getSessionSettings(
+  entries: SessionEntry[],
+  leafId?: string | null,
+): Pick<SessionContext, "thinkingLevel" | "model"> {
+  if (leafId === null) return { thinkingLevel: "off", model: null };
+  const byId = new Map(entries.map((entry) => [entry.id, entry]));
+  let current = leafId ? byId.get(leafId) : undefined;
+  current ??= entries[entries.length - 1];
+  let thinkingLevel: string | undefined;
+  let model: SessionContext["model"] | undefined;
+
+  while (current && (thinkingLevel === undefined || model === undefined)) {
+    if (thinkingLevel === undefined && current.type === "thinking_level_change") {
+      thinkingLevel = current.thinkingLevel;
+    }
+    if (model === undefined && current.type === "model_change") {
+      model = { provider: current.provider, modelId: current.modelId };
+    } else if (model === undefined && current.type === "message" && current.message.role === "assistant") {
+      const message = current.message as { provider?: unknown; model?: unknown };
+      if (typeof message.provider === "string" && typeof message.model === "string") {
+        model = { provider: message.provider, modelId: message.model };
+      }
+    }
+    current = current.parentId ? byId.get(current.parentId) : undefined;
+  }
+
+  return { thinkingLevel: thinkingLevel ?? "off", model: model ?? null };
+}
+
 export function buildSessionContext(
   entries: SessionEntry[],
   leafId?: string | null,
@@ -435,15 +463,7 @@ export function buildSessionContext(
   const byId = new Map<string, SessionEntry>();
   for (const e of sliced) byId.set(e.id, e);
 
-  const fullById = new Map<string, SessionEntry>();
-  for (const e of entries) fullById.set(e.id, e);
-  const piCtx = piBuildSessionContext(
-    entries as unknown as PiSessionEntry[],
-    leafId,
-    fullById as unknown as Map<string, PiSessionEntry>,
-  );
-
-  const contextLeafId = sliced.at(-1)?.id ?? leafId;
+  const contextLeafId = tail && tail > 0 ? (sliced.at(-1)?.id ?? leafId) : leafId;
   const contextEntries = piBuildContextEntries(
     sliced as unknown as PiSessionEntry[],
     contextLeafId,
@@ -468,8 +488,7 @@ export function buildSessionContext(
     entryIds,
     oldestEntryId: sliced[0]?.id ?? null,
     hasMore,
-    thinkingLevel: piCtx.thinkingLevel,
-    model: piCtx.model,
+    ...getSessionSettings(entries, leafId),
     goal: extractGoalFromEntries(entries),
   };
 }

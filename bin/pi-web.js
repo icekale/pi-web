@@ -3,12 +3,6 @@
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { getUnsupportedNodeVersionMessage, isNodeVersionSupported } = require("./node-version");
-
-if (!isNodeVersionSupported(process.versions.node)) {
-  console.error(getUnsupportedNodeVersionMessage(process.versions.node));
-  process.exit(1);
-}
-
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { spawn } = require("child_process");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -31,6 +25,11 @@ try {
 if (options.help) {
   console.log(getHelpText());
   process.exit(0);
+}
+
+if (!isNodeVersionSupported(process.versions.node)) {
+  console.error(getUnsupportedNodeVersionMessage(process.versions.node));
+  process.exit(1);
 }
 
 const { port, hostname, openBrowser } = options;
