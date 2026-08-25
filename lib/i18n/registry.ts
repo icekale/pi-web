@@ -1,5 +1,6 @@
 import { enLocale } from "./messages/en";
 import { zhCNLocale } from "./messages/zh-CN";
+import { zhTWLocale } from "./messages/zh-TW";
 import type { Locale, LocalePlugin } from "./types";
 
 const localePlugins = new Map<string, LocalePlugin>();
@@ -34,6 +35,13 @@ export function resolveBrowserLocale(languages: readonly string[]): Locale {
   for (const language of languages) {
     const normalized = language.toLowerCase();
     if (normalized === "en" || normalized.startsWith("en-")) return "en";
+    if (
+      normalized === "zh-tw"
+      || normalized.startsWith("zh-tw")
+      || normalized.startsWith("zh-hant")
+      || normalized.startsWith("zh-hk")
+      || normalized.startsWith("zh-mo")
+    ) return "zh-TW";
     if (normalized === "zh" || normalized.startsWith("zh-")) return "zh-CN";
   }
   return "en";
@@ -41,3 +49,4 @@ export function resolveBrowserLocale(languages: readonly string[]): Locale {
 
 registerLocale(enLocale);
 registerLocale(zhCNLocale);
+registerLocale(zhTWLocale);

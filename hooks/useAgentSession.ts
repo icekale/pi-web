@@ -18,6 +18,7 @@ import { clearDraft, rekeyDraft, restoreDraftSubmission } from "@/lib/draft-stor
 import { getPreferredToolPreset, setPreferredToolPreset } from "@/lib/tool-preset-preference";
 import { getToolNamesForPreset, type ToolEntry, type ToolPreset } from "@/lib/tool-presets";
 import type { SessionStatsInfo } from "@/lib/pi-types";
+import { mergeSessionStats, type SessionFileStats } from "@/lib/session-stats";
 import { userMessageKey } from "@/lib/prompt-recovery";
 import { AgentEventConnection } from "@/lib/agent-event-connection";
 import { getToolExecutionProgress } from "@/lib/tool-execution-progress";
@@ -45,7 +46,10 @@ export interface SessionData {
     thinkingLevel: string;
     model: { provider: string; modelId: string } | null;
     goal?: import("@/lib/goal-panel").GoalPanelModel | null;
+    oldestEntryId?: string | null;
+    hasMore?: boolean;
   };
+  stats?: SessionFileStats;
 }
 
 interface AgentEvent {
@@ -311,6 +315,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [slashCommandsLoading, setSlashCommandsLoading] = useState(false);
   const [noticeState, dispatchNotice] = useReducer(noticeReducer, { visible: [], pending: [] });
   const [sessionStatsOverride, setSessionStatsOverride] = useState<SessionStatsInfo | null>(null);
+  const [historyCursor, setHistoryCursor] = useState<string | null>(null);
+  const [hasEarlierMessages, setHasEarlierMessages] = useState(false);
   const [extensionDialog, setExtensionDialog] = useState<ExtensionUiDialogRequest | null>(null);
   const [extensionCustomUi, setExtensionCustomUi] = useState<ExtensionUiCustomRequest | null>(null);
   const [extensionStatuses, setExtensionStatuses] = useState<ExtensionStatusItem[]>([]);
@@ -445,55 +451,32 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (sessionStatsOverride) {
       return { ...sessionStatsOverride, totalActiveMs: data?.totalActiveMs };
     }
-    const tokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
-    let cost = 0;
-    let userMessages = 0;
-    let assistantMessages = 0;
-    let toolResults = 0;
-    let toolCalls = 0;
-    for (const msg of messages) {
-      if (msg.role === "user") userMessages += 1;
-      if (msg.role === "toolResult") toolResults += 1;
-      if (msg.role !== "assistant") continue;
-      assistantMessages += 1;
-      const u = (msg as import("@/lib/types").AssistantMessage).usage;
-      toolCalls += (msg as import("@/lib/types").AssistantMessage).content.filter((c) => c.type === "toolCall").length;
-      if (!u) continue;
-      tokens.input += u.input ?? 0;
-      tokens.output += u.output ?? 0;
-      tokens.cacheRead += u.cacheRead ?? 0;
-      tokens.cacheWrite += u.cacheWrite ?? 0;
-      cost += u.cost?.total ?? 0;
-    }
-    tokens.total = tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite;
-    if (tokens.total === 0 && messages.length === 0) return null;
+    const merged = mergeSessionStats(data?.stats, data?.context.messages ?? [], messages);
+    if (merged.tokens.total === 0 && messages.length === 0) return null;
     return {
       sessionFile: data?.filePath || undefined,
       sessionId: sessionIdRef.current ?? session?.id ?? "",
       sessionName: session?.name,
-      userMessages,
-      assistantMessages,
-      toolCalls,
-      toolResults,
-      totalMessages: messages.length,
-      tokens,
-      cost,
+      ...merged,
       totalActiveMs: data?.totalActiveMs,
       ...(contextUsage ? { contextUsage } : {}),
     } satisfies SessionStatsInfo;
-  }, [messages, sessionStatsOverride, contextUsage, data?.filePath, data?.totalActiveMs, session?.id, session?.name]);
+  }, [messages, sessionStatsOverride, contextUsage, data?.context.messages, data?.filePath, data?.totalActiveMs, data?.stats, session?.id, session?.name]);
 
   const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false) => {
     let messagesLoaded = false;
     try {
       if (showLoading) setLoading(true);
-      const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1", deferToolResults: "1" });
+      const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1", deferToolResults: "1", tail: "50" });
       const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}?${params}`);
       if (res.status === 404) {
         if (showLoading) {
           setData(null);
           setActiveLeafId(null);
           setMessages([]);
+          setEntryIds([]);
+          setHistoryCursor(null);
+          setHasEarlierMessages(false);
           setError(null);
         }
         return null;
@@ -507,6 +490,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setActiveLeafId(d.leafId);
       setMessages(persistedMessages);
       setEntryIds(d.context.entryIds ?? []);
+      setHistoryCursor(d.context.oldestEntryId ?? d.context.entryIds?.[0] ?? null);
+      setHasEarlierMessages(Boolean(d.context.hasMore));
       setCurrentModelOverride((current) => modelSwitchPendingRef.current ? current : null);
       setError(null);
       if (d.context.thinkingLevel && d.context.thinkingLevel !== "off") {
@@ -550,20 +535,46 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [textDeltaBatcher]);
 
-  const loadContext = useCallback(async (sid: string, leafId: string | null) => {
+  const loadContext = useCallback(async (sid: string, leafId: string | null, before?: string | null) => {
     try {
-      const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1", deferToolResults: "1" });
+      const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1", deferToolResults: "1", tail: "50" });
       if (leafId) params.set("leafId", leafId);
+      if (before) params.set("before", before);
       const url = `/api/sessions/${encodeURIComponent(sid)}/context?${params}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const d = await res.json() as { context: { messages: AgentMessage[]; entryIds: string[] } };
-      setMessages(d.context.messages);
-      setEntryIds(d.context.entryIds ?? []);
+      const d = await res.json() as { context: SessionData["context"] };
+      if (sessionIdRef.current !== sid) return;
+      setHistoryCursor(d.context.oldestEntryId ?? d.context.entryIds?.[0] ?? null);
+      setHasEarlierMessages(Boolean(d.context.hasMore));
+      setData((prev) => {
+        if (!prev || prev.sessionId !== sid) return prev;
+        const context = before ? {
+          ...prev.context,
+          messages: [...d.context.messages, ...prev.context.messages],
+          entryIds: [...(d.context.entryIds ?? []), ...(prev.context.entryIds ?? [])],
+          oldestEntryId: d.context.oldestEntryId,
+          hasMore: d.context.hasMore,
+        } : d.context;
+        return { ...prev, context };
+      });
+      if (before) {
+        setMessages((prev) => [...d.context.messages, ...prev]);
+        setEntryIds((prev) => [...(d.context.entryIds ?? []), ...prev]);
+      } else {
+        setMessages(d.context.messages);
+        setEntryIds(d.context.entryIds ?? []);
+      }
     } catch (e) {
       console.error("Failed to load context:", e);
     }
   }, []);
+
+  const loadEarlier = useCallback(async () => {
+    const sid = sessionIdRef.current;
+    if (!sid || !hasEarlierMessages || !historyCursor) return;
+    await loadContext(sid, activeLeafId, historyCursor);
+  }, [activeLeafId, hasEarlierMessages, historyCursor, loadContext]);
 
   const loadTools = useCallback(async (sid: string) => {
     try {
@@ -1720,6 +1731,23 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           return complete({ handled: true, message: "Copied last assistant message" });
         }
 
+        case "clone": {
+          if (!sid) return complete({ handled: true, error: "No active session to clone" });
+          if (agentRunningRef.current || bashRunningRef.current) {
+            return complete({ handled: true, error: "Cannot clone while the session is running" });
+          }
+          const result = await sendAgentCommand<{ cancelled?: boolean; newSessionId?: string }>(sid, {
+            type: "clone",
+            leafId: activeLeafId,
+          });
+          if (result?.cancelled || !result?.newSessionId) {
+            return complete({ handled: true, error: "Cannot clone an empty or unsaved session" });
+          }
+          const completed = complete({ handled: true, message: "Cloned current session branch" });
+          onSessionForked?.(result.newSessionId);
+          return completed;
+        }
+
         default:
           return { handled: false };
       }
@@ -1728,7 +1756,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       if (commandName === "compact") setIsCompacting(false);
     }
-  }, [addNotice, ensureNewSession, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onSessionStatsPanelOpen]);
+  }, [activeLeafId, addNotice, ensureNewSession, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onSessionForked, onSessionStatsPanelOpen]);
 
   // Let AgentSession.prompt decide atomically whether to queue against the
   // current run or start a new turn if it settled while the request was in
@@ -2063,8 +2091,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     return () => clearTimeout(t);
   }, [compactResult]);
 
+  const [pausedNoticeId, setPausedNoticeId] = useState<string | null>(null);
+  const noticeRemainingMsRef = useRef(NOTICE_VISIBLE_MS);
+  const noticeTimerStartedAtRef = useRef<number | null>(null);
+  const noticeOldestIdRef = useRef<string | null>(null);
+
   useEffect(() => {
-    if (noticeState.visible.length === 0) return;
+    if (noticeState.visible.length === 0) {
+      noticeOldestIdRef.current = null;
+      return;
+    }
     const exiting = noticeState.visible.find((notice) => notice.exiting);
     if (exiting) {
       const t = setTimeout(() => {
@@ -2074,11 +2110,26 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
     const oldest = noticeState.visible[0];
     if (!oldest) return;
+    if (noticeOldestIdRef.current !== oldest.id) {
+      noticeOldestIdRef.current = oldest.id;
+      noticeRemainingMsRef.current = NOTICE_VISIBLE_MS;
+    }
+    if (noticeState.visible.some((notice) => notice.id === pausedNoticeId)) return;
+    noticeTimerStartedAtRef.current = Date.now();
     const t = setTimeout(() => {
       dispatchNotice({ type: "mark_oldest_exiting" });
-    }, NOTICE_VISIBLE_MS);
-    return () => clearTimeout(t);
-  }, [noticeState.visible]);
+    }, noticeRemainingMsRef.current);
+    return () => {
+      clearTimeout(t);
+      if (noticeTimerStartedAtRef.current !== null) {
+        noticeRemainingMsRef.current = Math.max(
+          0,
+          noticeRemainingMsRef.current - (Date.now() - noticeTimerStartedAtRef.current),
+        );
+        noticeTimerStartedAtRef.current = null;
+      }
+    };
+  }, [noticeState.visible, pausedNoticeId]);
 
   useEffect(() => {
     setSessionStatsOverride(null);
@@ -2086,7 +2137,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   return {
     // State
-    data, loading, error, activeLeafId, messages, entryIds, streamState,
+    data, loading, error, activeLeafId, messages, entryIds, historyCursor, hasEarlierMessages, streamState,
     agentRunning, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, modelSwitching, sessionStats,
@@ -2107,6 +2158,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     handleRecallQueue,
     handleQueueRemoveItem, handleQueueEditItem, handleQueueSteerItem, handleSteerAllQueued,
     handleBuiltinSlashCommand,
+    setNoticePaused: setPausedNoticeId,
+    loadEarlier,
     handleToolPresetChange, handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages,
     scrollToBottom, scrollUserMsgToTop,
     dispatch, setAgentRunning, setForkingEntryId,

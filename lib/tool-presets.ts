@@ -4,7 +4,7 @@ export interface ToolEntry {
   active: boolean;
 }
 
-export const TOOL_PRESET_VALUES = ["none", "read-only", "default", "full"] as const;
+export const TOOL_PRESET_VALUES = ["none", "chat-only", "read-only", "default", "full"] as const;
 export type ToolPreset = typeof TOOL_PRESET_VALUES[number];
 
 export const PRESET_NONE: string[] = [];
@@ -35,7 +35,7 @@ export function getPresetFromTools(tools: ToolEntry[]): ToolPreset {
 }
 
 export function getToolNamesForPreset(preset: ToolPreset): string[] {
-  if (preset === "none") return [...PRESET_NONE];
+  if (preset === "none" || preset === "chat-only") return [...PRESET_NONE];
   if (preset === "read-only") return [...PRESET_READ_ONLY];
   if (preset === "full") return [...PRESET_FULL];
   return [...PRESET_DEFAULT];

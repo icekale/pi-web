@@ -146,7 +146,7 @@ test("lays out attach, access, model, and reasoning like the reference composer"
 
 test("tool preset menu copy names the allowed actions", async () => {
   const source = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
-  assert.match(source, /chat\.presetOffHint/);
+  assert.match(source, /chat\.chatOnlyHint/);
   assert.match(source, /chat\.presetReadOnlyHint/);
   assert.match(source, /chat\.presetDefaultHint/);
   assert.match(source, /chat\.presetFullHint/);

@@ -295,13 +295,41 @@ function getContentDisposition(filePath: string, asDownload = false): string {
   return `${disposition}; filename="${fallback}"; filename*=UTF-8''${encodeHeaderValue(fileName)}`;
 }
 
+function readTextPreview(filePath: string, size: number): { content: string; truncated: boolean } {
+  if (size <= TEXT_PREVIEW_MAX_BYTES) {
+    return { content: fs.readFileSync(filePath, "utf-8"), truncated: false };
+  }
+  const fd = fs.openSync(filePath, "r");
+  try {
+    const buf = Buffer.alloc(TEXT_PREVIEW_MAX_BYTES);
+    const bytesRead = fs.readSync(fd, buf, 0, TEXT_PREVIEW_MAX_BYTES, 0);
+    return {
+      content: buf.subarray(0, bytesRead).toString("utf8").replace(/\uFFFD+$/g, ""),
+      truncated: true,
+    };
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 function streamFile(filePath: string, stat: fs.Stats, contentType: string, rangeHeader: string | null, asDownload = false): Response {
-  const headers = {
+  const headers: Record<string, string> = {
     "Content-Type": contentType,
     "Cache-Control": "no-cache",
     "Accept-Ranges": "bytes",
     "Content-Disposition": getContentDisposition(filePath, asDownload),
+    "X-Content-Type-Options": "nosniff",
   };
+  // SVG is the only preview type a browser executes as a document. A
+  // repo-controlled SVG navigated to directly (for example through a link in
+  // a transcript) would otherwise run script in the Pi Web origin, where it
+  // can call any /api route. These headers only affect document rendering;
+  // <img> preview embedding ignores them.
+  if (contentType === "image/svg+xml") {
+    headers["Content-Security-Policy"] =
+      "default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
+    headers["Referrer-Policy"] = "no-referrer";
+  }
 
   if (!rangeHeader) {
     return new Response(createFileBodyStream(filePath), {
@@ -462,12 +490,9 @@ export async function GET(
       if (documentMime) {
         return streamFile(filePath, stat, documentMime, request.headers.get("range"));
       }
-      if (stat.size > TEXT_PREVIEW_MAX_BYTES) {
-        return Response.json({ error: "File too large for preview (>256KB)" }, { status: 413 });
-      }
-      const content = fs.readFileSync(filePath, "utf-8");
+      const { content, truncated } = readTextPreview(filePath, stat.size);
       const language = getLanguage(filePath);
-      return Response.json({ content, language, size: stat.size });
+      return Response.json({ content, language, size: stat.size, truncated });
     }
 
     if (type === "download") {

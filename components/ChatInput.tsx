@@ -122,28 +122,29 @@ export interface ChatInputHandle {
   restoreSubmission: (text: string, images?: ChatDraftImage[], targetDraftKey?: string) => void;
 }
 
-const TOOL_PRESETS = ["off", "read-only", "default", "full"] as const;
+const TOOL_PRESETS = ["chat-only", "read-only", "default", "full"] as const;
 type ToolPresetLabel = typeof TOOL_PRESETS[number];
 const TOOL_PRESET_MAP: Record<ToolPresetLabel, ToolPreset> = {
-  off: "none",
+  "chat-only": "chat-only",
   "read-only": "read-only",
   default: "default",
   full: "full",
 };
 const TOOL_PRESET_LABEL_KEYS: Record<ToolPresetLabel, string> = {
-  off: "chat.presetOff",
+  "chat-only": "chat.chatOnly",
   "read-only": "chat.presetReadOnly",
   default: "chat.presetDefault",
   full: "chat.presetFull",
 };
 const TOOL_PRESET_HINT_KEYS: Record<ToolPresetLabel, string> = {
-  off: "chat.presetOffHint",
+  "chat-only": "chat.chatOnlyHint",
   "read-only": "chat.presetReadOnlyHint",
   default: "chat.presetDefaultHint",
   full: "chat.presetFullHint",
 };
 
 function toolPresetLabelFor(preset?: ToolPreset | null): ToolPresetLabel {
+  if (preset === "none" || preset === "chat-only") return "chat-only";
   const value = preset ?? "default";
   return TOOL_PRESETS.find((label) => TOOL_PRESET_MAP[label] === value) ?? "default";
 }
@@ -221,6 +222,7 @@ const BUILTIN_SLASH_COMMANDS: SlashCommandPaletteItem[] = [
   { name: "name", description: "chat.commandName", source: "builtin" },
   { name: "session", description: "chat.commandSession", source: "builtin" },
   { name: "copy", description: "chat.commandCopy", source: "builtin" },
+  { name: "clone", description: "chat.commandClone", source: "builtin" },
 ];
 
 const SLASH_SOURCES: SlashCommandSource[] = ["builtin", "extension", "prompt", "skill"];
@@ -251,6 +253,58 @@ function slashMatchRank(command: SlashCommandPaletteItem, query: string, t: (key
 
 function getSlashDescription(command: SlashCommandPaletteItem, t: (key: string) => string): string {
   return command.source === "builtin" ? t(command.description) : command.description ?? "";
+}
+
+const CLIENT_IMAGE_COMPRESSION_THRESHOLD_BYTES = 1024 * 1024;
+const CLIENT_MAX_IMAGE_SIDE = 1024;
+const CLIENT_JPEG_QUALITY = 0.85;
+
+export function shouldCompressImageFile(file: Pick<File, "size" | "type">): boolean {
+  return file.size > CLIENT_IMAGE_COMPRESSION_THRESHOLD_BYTES && file.type !== "image/gif";
+}
+
+function readImageFile(file: Blob, mimeType: string): Promise<{ data: string; mimeType: string }> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const data = typeof reader.result === "string" ? reader.result.split(",")[1] : undefined;
+      if (!data) {
+        reject(new Error("Failed to read image"));
+        return;
+      }
+      resolve({ data, mimeType });
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+export async function compressImageFile(file: File): Promise<{ data: string; mimeType: string }> {
+  const original = () => readImageFile(file, file.type);
+  if (!shouldCompressImageFile(file) || typeof createImageBitmap !== "function") return original();
+
+  const bitmap = await createImageBitmap(file).catch(() => null);
+  if (!bitmap) return original();
+
+  try {
+    const scale = Math.min(1, CLIENT_MAX_IMAGE_SIDE / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return original();
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const data = canvas.toDataURL("image/jpeg", CLIENT_JPEG_QUALITY).split(",")[1];
+    return data && data.length < Math.ceil(file.size / 3) * 4
+      ? { data, mimeType: "image/jpeg" }
+      : original();
+  } catch {
+    return original();
+  } finally {
+    bitmap.close();
+  }
 }
 
 // Skill slash commands are named "skill:<skillName>"; look the skill up in the
@@ -954,24 +1008,19 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     pendingImageCountRef.current += imageFiles.length;
     try {
       const newImages = await Promise.all(
-        imageFiles.map(
-          (file) =>
-            new Promise<AttachedImage>((resolve, reject) => {
-              const reader = new FileReader();
-              reader.onload = () => {
-                const result = reader.result as string;
-                // result is "data:<mime>;base64,<data>"
-                const base64 = result.split(",")[1];
-                resolve({ data: base64, mimeType: file.type, previewUrl: URL.createObjectURL(file) });
-              };
-              reader.onerror = reject;
-              reader.readAsDataURL(file);
-            })
-        )
+        imageFiles.map(async (file) => {
+          const compressed = await compressImageFile(file);
+          return {
+            ...compressed,
+            previewUrl: URL.createObjectURL(file),
+          } satisfies AttachedImage;
+        }),
       );
       setAttachedImages((prev) => {
-        const accepted = newImages.slice(0, Math.max(0, MAX_ATTACHED_IMAGES - prev.length));
-        newImages.slice(accepted.length).forEach(revokeImagePreview);
+        const accepted = newImages
+          .filter((image) => isBase64ImageWithinLimits(image))
+          .slice(0, Math.max(0, MAX_ATTACHED_IMAGES - prev.length));
+        newImages.filter((image) => !accepted.includes(image)).forEach(revokeImagePreview);
         const next = [...prev, ...accepted];
         attachedImagesRef.current = next;
         return next;

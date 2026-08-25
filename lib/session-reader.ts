@@ -290,8 +290,7 @@ export async function resolveSessionPath(sessionId: string): Promise<string | nu
     return found;
   }
 
-  await listAllSessions();
-  return getPathCache().get(sessionId) ?? null;
+  return null;
 }
 
 export async function resolveSessionIdByPath(filePath: string): Promise<string | undefined> {
@@ -305,11 +304,8 @@ export async function resolveSessionIdByPath(filePath: string): Promise<string |
       cacheSessionPath(header.id, filePath);
       return header.id;
     }
-    return undefined;
   }
-
-  await listAllSessions();
-  return getPathToIdCache().get(pathKey);
+  return undefined;
 }
 
 export function cacheSessionPath(sessionId: string, filePath: string): void {
@@ -385,20 +381,72 @@ export function getSessionEntries(filePath: string): SessionEntry[] {
   return entries as unknown as SessionEntry[];
 }
 
-export function buildSessionContext(
+export const DEFAULT_SESSION_TAIL = 50;
+export const MAX_SESSION_TAIL = 1000;
+
+export function parseSessionTail(raw: string | null): number {
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 ? Math.min(value, MAX_SESSION_TAIL) : DEFAULT_SESSION_TAIL;
+}
+
+export interface BuildSessionContextOptions {
+  deferThinking?: boolean;
+  deferToolResultImages?: boolean;
+  deferToolResults?: boolean;
+  tail?: number;
+  excludeLeaf?: boolean;
+}
+
+/**
+ * Extract the ancestor chain from `leafId` back toward the root, capped at
+ * `tail` entries. Iterative so a deep linear session cannot overflow the stack.
+ */
+export function sliceActiveBranch(
   entries: SessionEntry[],
-  leafId?: string | null,
-  options: { deferThinking?: boolean; deferToolResultImages?: boolean; deferToolResults?: boolean } = {},
-): SessionContext {
+  leafId: string | null,
+  tail: number,
+  excludeLeaf = false,
+): SessionEntry[] {
+  if (tail <= 0) return entries;
   const byId = new Map<string, SessionEntry>();
   for (const e of entries) byId.set(e.id, e);
 
-  const piEntries = entries as unknown as PiSessionEntry[];
-  const piCtx = piBuildSessionContext(piEntries, leafId, byId as unknown as Map<string, PiSessionEntry>);
+  let leaf = leafId ? byId.get(leafId) : entries[entries.length - 1];
+  if (excludeLeaf) leaf = leaf?.parentId ? byId.get(leaf.parentId) : undefined;
+  if (!leaf) return [];
+  const chain: SessionEntry[] = [];
+  let current: SessionEntry | undefined = leaf;
+  while (current && chain.length < tail) {
+    chain.push(current);
+    current = current.parentId ? byId.get(current.parentId) : undefined;
+  }
+  chain.reverse();
+  return chain;
+}
 
-  const contextEntries = piBuildContextEntries(
-    piEntries,
+export function buildSessionContext(
+  entries: SessionEntry[],
+  leafId?: string | null,
+  options: BuildSessionContextOptions = {},
+): SessionContext {
+  const { tail, excludeLeaf } = options;
+  const sliced = tail && tail > 0 ? sliceActiveBranch(entries, leafId ?? null, tail, excludeLeaf) : entries;
+  const hasMore = Boolean(tail && tail > 0 && sliced[0]?.parentId);
+  const byId = new Map<string, SessionEntry>();
+  for (const e of sliced) byId.set(e.id, e);
+
+  const fullById = new Map<string, SessionEntry>();
+  for (const e of entries) fullById.set(e.id, e);
+  const piCtx = piBuildSessionContext(
+    entries as unknown as PiSessionEntry[],
     leafId,
+    fullById as unknown as Map<string, PiSessionEntry>,
+  );
+
+  const contextLeafId = sliced.at(-1)?.id ?? leafId;
+  const contextEntries = piBuildContextEntries(
+    sliced as unknown as PiSessionEntry[],
+    contextLeafId,
     byId as unknown as Map<string, PiSessionEntry>,
   );
 
@@ -418,6 +466,8 @@ export function buildSessionContext(
   return {
     messages,
     entryIds,
+    oldestEntryId: sliced[0]?.id ?? null,
+    hasMore,
     thinkingLevel: piCtx.thinkingLevel,
     model: piCtx.model,
     goal: extractGoalFromEntries(entries),
@@ -497,7 +547,7 @@ function omitToolResultBase64Images(message: AgentMessage): AgentMessage {
 // Returns null for entries that do not map to chat history (metadata, non-message types).
 function entryToUiMessage(
   entry: SessionEntry,
-  options: { deferThinking?: boolean; deferToolResultImages?: boolean; deferToolResults?: boolean },
+  options: BuildSessionContextOptions,
 ): AgentMessage | null {
   // Supported message roles: user, assistant, toolResult, bashExecution.
   // bashExecution messages enter the case "message" branch (entry.type === "message").
@@ -509,9 +559,17 @@ function entryToUiMessage(
       const normalized = options.deferToolResultImages
         ? omitToolResultBase64Images(normalizeToolCalls(entry.message))
         : normalizeToolCalls(entry.message);
-      const message = options.deferToolResults
+      const deferred = options.deferToolResults
         ? deferToolResultContent(normalized)
         : normalized;
+      const message = deferred.role === "assistant" && !Array.isArray(deferred.content)
+        ? {
+          ...deferred,
+          content: typeof deferred.content === "string" && deferred.content
+            ? [{ type: "text" as const, text: deferred.content }]
+            : [],
+        }
+        : deferred;
       if (!options.deferThinking || message.role !== "assistant") return message;
       return {
         ...message,

@@ -183,16 +183,16 @@ interface Props {
   tokenSpeedEnabled?: boolean;
 }
 
-function formatTime(ts?: number): string | null {
+function formatTime(ts?: number, locale?: string): string | null {
   if (!ts) return null;
   const d = new Date(ts);
   const now = new Date();
   const isToday = d.getFullYear() === now.getFullYear() &&
     d.getMonth() === now.getMonth() &&
     d.getDate() === now.getDate();
-  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const time = d.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
   if (isToday) return time;
-  const date = d.toLocaleDateString([], { month: "short", day: "numeric", year: d.getFullYear() !== now.getFullYear() ? "numeric" : undefined });
+  const date = d.toLocaleDateString(locale, { month: "short", day: "numeric", year: d.getFullYear() !== now.getFullYear() ? "numeric" : undefined });
   return `${date} ${time}`;
 }
 
@@ -281,7 +281,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
   prevAssistantEntryId?: string;
   onEditContent?: (message: UserMessage) => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
@@ -307,7 +307,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
     ? commandText.slice(commandSeparator + 1)
     : "";
 
-  const time = formatTime(message.timestamp);
+  const time = formatTime(message.timestamp, locale);
   const canFork = !!entryId && !!onFork;
   const copyTarget = commandText ?? content;
   const editTarget = commandText ? replaceUserMessageText(message, commandText) : message;
@@ -535,8 +535,8 @@ function AssistantMessageView({
   writtenFiles?: WrittenFile[];
   tokenSpeedEnabled?: boolean;
 }) {
-  const { t } = useI18n();
-  const time = showTimestamp ? formatTime(message.timestamp) : null;
+  const { t, locale } = useI18n();
+  const time = showTimestamp ? formatTime(message.timestamp, locale) : null;
   const blockItems = useMemo(() => (message.content ?? [])
     .map((block, originalIndex) => ({ block, originalIndex }))
     .filter(({ block }) => !isEmptyThinkingBlock(block, { isStreaming })), [message.content, isStreaming]);
@@ -947,6 +947,7 @@ function ToolCallBlock({ block, result, duration, defaultExpanded, isStreaming, 
   const resultText = effectiveResult
     ? effectiveResult.content.filter((b): b is { type: "text"; text: string } => b.type === "text").map((b) => b.text).join("\n")
     : null;
+  const resultImages = getMessageImages(effectiveResult?.content ?? []);
   const resultIsEmpty = resultText === null ? false : (resultText.trim() === "(no output)" || resultText.trim() === "");
   const isError = effectiveResult?.isError ?? false;
 
@@ -1043,6 +1044,7 @@ function ToolCallBlock({ block, result, duration, defaultExpanded, isStreaming, 
         ) : (
           <PairedResult
             text={resultText ?? ""}
+            images={resultImages}
             isEmpty={resultIsEmpty}
             isError={isError}
           />
@@ -1288,12 +1290,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function PairedResult({ text, isEmpty, isError }: {
+function PairedResult({ text, images, isEmpty, isError }: {
   text: string;
+  images: ImageContent[];
   isEmpty: boolean;
   isError: boolean;
 }) {
   const { t } = useI18n();
+  const showText = !isEmpty || images.length === 0;
   return (
     <div
       style={{
@@ -1301,33 +1305,64 @@ function PairedResult({ text, isEmpty, isError }: {
         background: isError ? "rgba(248,113,113,0.04)" : "var(--bg-subtle)",
       }}
     >
-      <pre
-        style={{
-          margin: 0,
-          padding: "8px 10px",
-          color: isError ? "#f87171" : (isEmpty ? "var(--text-dim)" : "var(--text-muted)"),
-          fontSize: "var(--text-ui)",
-          lineHeight: "var(--leading-prose)",
-          overflow: "auto",
-          maxHeight: 400,
-          background: "var(--bg)",
-          whiteSpace: "pre-wrap",
-          wordBreak: "break-all",
-          fontStyle: isEmpty ? "italic" : "normal",
-          opacity: isEmpty ? 0.6 : 1,
-        }}
-      >
-         {isEmpty ? t("i18n.noOutput") : text}
-      </pre>
+      {images.length > 0 && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", padding: "10px", background: "var(--bg)" }}>
+          {images.map((image, index) => {
+            const src = imageSource(image);
+            if (!src) return null;
+            return (
+              <ImagePreview
+                key={`${src}-${index}`}
+                src={src}
+                style={{ maxWidth: "100%" }}
+              >
+                <img
+                  src={src}
+                  alt=""
+                  loading="lazy"
+                  style={{
+                    display: "block",
+                    maxWidth: "min(100%, 720px)",
+                    maxHeight: 520,
+                    borderRadius: 6,
+                    objectFit: "contain",
+                    border: "1px solid var(--border)",
+                  }}
+                />
+              </ImagePreview>
+            );
+          })}
+        </div>
+      )}
+      {showText && (
+        <pre
+          style={{
+            margin: 0,
+            padding: "8px 10px",
+            color: isError ? "#f87171" : (isEmpty ? "var(--text-dim)" : "var(--text-muted)"),
+            fontSize: "var(--text-ui)",
+            lineHeight: "var(--leading-prose)",
+            overflow: "auto",
+            maxHeight: 400,
+            background: "var(--bg)",
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-all",
+            fontStyle: isEmpty ? "italic" : "normal",
+            opacity: isEmpty ? 0.6 : 1,
+          }}
+        >
+           {isEmpty ? t("i18n.noOutput") : text}
+        </pre>
+      )}
     </div>
   );
 }
 
 function CompactionMessageView({ message }: { message: CustomMessage }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const summary = getMessageText(message.content);
   const parsedSummary = useMemo(() => parseCompactionSummary(summary), [summary]);
-  const time = formatTime(message.timestamp);
+  const time = formatTime(message.timestamp, locale);
 
   return (
     <div style={{ marginBottom: 16 }}>
@@ -1407,7 +1442,7 @@ function CompactionFileList({ title, files }: { title: string; files: string[] }
 }
 
 function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessage; cwd?: string; onOpenFile?: (filePath: string) => void }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const isHiddenDisplay = message.display === false;
   const [contentExpanded, setContentExpanded] = useState(!isHiddenDisplay);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
@@ -1417,7 +1452,7 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
   const hasDetails = message.details !== undefined;
   const detailsText = hasDetails ? safeJson(message.details) : "";
   const title = formatCustomType(message.customType);
-  const time = formatTime(message.timestamp);
+  const time = formatTime(message.timestamp, locale);
 
   const copyContent = () => {
     copyText(text || detailsText).then(() => {
@@ -1577,7 +1612,7 @@ function getMessageText(content: CustomMessage["content"] | UserMessage["content
     .join("\n");
 }
 
-function getMessageImages(content: CustomMessage["content"] | UserMessage["content"]): ImageContent[] {
+function getMessageImages(content: CustomMessage["content"] | UserMessage["content"] | ToolResultMessage["content"]): ImageContent[] {
   if (typeof content === "string") return [];
   return content.filter((b): b is ImageContent => b.type === "image");
 }

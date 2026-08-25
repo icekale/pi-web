@@ -19,7 +19,7 @@ export async function PUT(req: Request) {
   try {
     const body = await req.json() as { locale?: unknown };
     const locale = writeUiLocale(body.locale);
-    if (!locale) return Response.json({ error: "locale must be en or zh-CN" }, { status: 400 });
+    if (!locale) return Response.json({ error: "locale must be en, zh-CN, or zh-TW" }, { status: 400 });
     return Response.json({ locale });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });

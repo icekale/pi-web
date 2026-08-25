@@ -1,5 +1,5 @@
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { resolveSessionPath, buildSessionContext } from "@/lib/session-reader";
+import { resolveSessionPath, buildSessionContext, parseSessionTail } from "@/lib/session-reader";
 import { getRpcSession } from "@/lib/rpc-manager";
 
 export async function GET(
@@ -12,6 +12,8 @@ export async function GET(
   const deferThinking = url.searchParams.has("deferThinking");
   const deferToolResultImages = url.searchParams.has("deferMedia");
   const deferToolResults = url.searchParams.has("deferToolResults");
+  const tail = parseSessionTail(url.searchParams.get("tail"));
+  const before = url.searchParams.get("before") ?? undefined;
 
   try {
     const rpc = getRpcSession(id);
@@ -22,13 +24,15 @@ export async function GET(
     }
 
     const sm = liveRpc?.inner.sessionManager ?? SessionManager.open(filePath!);
-    const context = buildSessionContext(sm.getEntries() as never, leafId, {
+    const context = buildSessionContext(sm.getEntries() as never, before ?? leafId, {
       deferThinking,
       deferToolResultImages,
       deferToolResults,
+      tail,
+      excludeLeaf: Boolean(before),
     });
 
-    return Response.json({ context });
+    return Response.json({ context, tail, before: before ?? null });
   } catch (error) {
     return Response.json({ error: String(error) }, { status: 500 });
   }
