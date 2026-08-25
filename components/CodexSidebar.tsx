@@ -56,6 +56,7 @@ type QuickResult =
   | { type: "session"; session: SessionInfo; project: ProjectView };
 
 const COLLAPSED_STORAGE_KEY = "pi-web:collapsed-projects";
+const PROJECT_DISCLOSURE_INITIALIZED_KEY = "pi-web:project-disclosure-initialized";
 const UNREAD_STORAGE_KEY = "pi-web:unread-session-ids";
 const RECENT_OPEN_STORAGE_KEY = "pi-web:recent-open";
 
@@ -77,6 +78,15 @@ function writeStringSet(key: string, values: Set<string>): void {
     else localStorage.removeItem(key);
   } catch {
     // Browser storage is best-effort.
+  }
+}
+
+function hasStorageValue(key: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return localStorage.getItem(key) !== null;
+  } catch {
+    return false;
   }
 }
 
@@ -191,6 +201,11 @@ export function CodexSidebar({
   const loadDataInFlightRef = useRef<Promise<void> | null>(null);
   const loadDataQueuedRef = useRef(false);
   const loadDataForceQueuedRef = useRef(false);
+  const projectDisclosureInitializedRef = useRef(
+    hasStorageValue(PROJECT_DISCLOSURE_INITIALIZED_KEY)
+      || hasStorageValue(COLLAPSED_STORAGE_KEY),
+  );
+  const collapseDefaultsInitializedRef = useRef(false);
 
   const fetchData = useCallback(async (force: boolean) => {
     const [sessionsResponse, projectsResponse] = await Promise.all([
@@ -345,6 +360,24 @@ export function CodexSidebar({
     ?? (worktrees.some((worktree) => worktree.path === selectedCwd) ? worktreeProjectRoot : null)
     ?? selectedCwd
   )) ?? null;
+
+  useEffect(() => {
+    if (loading || collapseDefaultsInitializedRef.current || activeProjects.length === 0) return;
+    collapseDefaultsInitializedRef.current = true;
+    try {
+      localStorage.setItem(PROJECT_DISCLOSURE_INITIALIZED_KEY, "1");
+    } catch {
+      // Browser storage is best-effort.
+    }
+    if (projectDisclosureInitializedRef.current) return;
+
+    const currentPath = selectedProject?.path ?? activeProjects[0]?.path;
+    if (!currentPath) return;
+    const inactivePaths = activeProjects
+      .filter((project) => project.path !== currentPath)
+      .map((project) => project.path);
+    setCollapsed(new Set(inactivePaths));
+  }, [activeProjects, loading, selectedProject?.path]);
 
   const saveProjects = useCallback(async (next: ProjectPreference[], mutation: object) => {
     setPreferences(next);

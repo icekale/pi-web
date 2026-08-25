@@ -168,6 +168,16 @@ test("project rows expand to list their sessions", () => {
   assert.match(sidebar, /<Chevron open=\{open\} \/>/);
 });
 
+test("fresh project disclosure keeps only the current project open", () => {
+  assert.match(sidebar, /pi-web:project-disclosure-initialized/);
+  assert.match(sidebar, /function hasStorageValue\(key: string\): boolean/);
+  assert.match(sidebar, /projectDisclosureInitializedRef = useRef\([\s\S]*?hasStorageValue\(PROJECT_DISCLOSURE_INITIALIZED_KEY\)[\s\S]*?hasStorageValue\(COLLAPSED_STORAGE_KEY\)/);
+  assert.match(sidebar, /collapseDefaultsInitializedRef = useRef\(false\)/);
+  assert.match(sidebar, /if \(projectDisclosureInitializedRef\.current\) return/);
+  assert.match(sidebar, /project\.path !== currentPath/);
+  assert.match(sidebar, /setCollapsed\(new Set\(inactivePaths\)\)/);
+});
+
 test("recent session rows preserve activity, selection, and session management", () => {
   assert.match(sidebar, /<SessionRow[\s\S]*?variant="recent"/);
   assert.match(sidebar, /projectLabel=\{projectLabel\}/);
