@@ -89,6 +89,19 @@ export function normalizeDisplayMath(markdown: string): string {
       }
     }
 
+    const looseBracketDisplayOneLine = line.match(/^([ ]{0,3})\[[ \t]*(.+?)[ \t]*\][ \t]*$/);
+    if (looseBracketDisplayOneLine) {
+      const math = looseBracketDisplayOneLine[2].trim();
+      if (isLikelyMathExpression(math)) {
+        normalized.push(
+          `${looseBracketDisplayOneLine[1]}$$`,
+          `${looseBracketDisplayOneLine[1]}${math}`,
+          `${looseBracketDisplayOneLine[1]}$$`,
+        );
+        continue;
+      }
+    }
+
     const bracketDisplayStart = line.match(/^([ ]{0,3})\\\[[ \t]*$/);
     if (bracketDisplayStart) {
       const closingIndex = findBracketDisplayClose(lines, index + 1);
@@ -296,6 +309,10 @@ function updateInlineCodeMarker(line: string, initialMarkerSize: number): number
     cursor = end;
   }
   return markerSize;
+}
+
+function isLikelyMathExpression(value: string): boolean {
+  return /\\[A-Za-z]+/.test(value) && !/\b(?:https?|file|mailto):|\b[A-Za-z]:\\|^\\\\/i.test(value);
 }
 
 function normalizeInlineLatexMath(line: string): string {

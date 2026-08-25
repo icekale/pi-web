@@ -27,6 +27,13 @@ test("session listing merges live registry snapshots and honors force refresh", 
   assert.match(listRoute, /"Cache-Control": "no-store"/);
 });
 
+test("detail and context routes parse a bounded tail window", () => {
+  assert.match(detailRoute, /parseSessionTail\(searchParams\.get\("tail"\)\)/);
+  assert.match(contextRoute, /parseSessionTail\(url\.searchParams\.get\("tail"\)\)/);
+  assert.match(contextRoute, /excludeLeaf: Boolean\(before\)/);
+  assert.match(detailRoute, /computeSessionStats/);
+});
+
 test("session reads use the live SessionManager before requiring a JSONL path", () => {
   for (const source of [detailRoute, contextRoute]) {
     const liveLookup = source.indexOf("getRpcSession(id)");

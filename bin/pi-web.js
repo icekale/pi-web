@@ -3,12 +3,6 @@
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { getUnsupportedNodeVersionMessage, isNodeVersionSupported } = require("./node-version");
-
-if (!isNodeVersionSupported(process.versions.node)) {
-  console.error(getUnsupportedNodeVersionMessage(process.versions.node));
-  process.exit(1);
-}
-
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { spawn } = require("child_process");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -16,11 +10,29 @@ const path = require("path");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fs = require("fs");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { parseLaunchOptions } = require("./pi-web-options");
+const { getHelpText, parseLaunchOptions } = require("./pi-web-options");
 
 const pkgDir = path.join(__dirname, "..");
 
-const { port, hostname, openBrowser } = parseLaunchOptions();
+let options;
+try {
+  options = parseLaunchOptions();
+} catch (error) {
+  console.error(error instanceof Error ? error.message : error);
+  process.exit(1);
+}
+
+if (options.help) {
+  console.log(getHelpText());
+  process.exit(0);
+}
+
+if (!isNodeVersionSupported(process.versions.node)) {
+  console.error(getUnsupportedNodeVersionMessage(process.versions.node));
+  process.exit(1);
+}
+
+const { port, hostname, openBrowser } = options;
 const loopbackHostnames = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
 const passwordEnabled = Boolean(process.env.PI_WEB_PASSWORD);
 

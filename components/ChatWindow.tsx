@@ -296,7 +296,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, modelSwitching, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
-    notices, dismissNotice, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput, runExtensionCommand,
+    notices, dismissNotice, setNoticePaused, hasEarlierMessages, loadEarlier, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput, runExtensionCommand,
     isAutoModelSelection,
     agentPhase,
     isNew,
@@ -362,6 +362,14 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   const sentinelRef = useRef<HTMLDivElement>(null);
   const prevScrollDistanceRef = useRef<number | null>(null);
 
+  useEffect(() => {
+    setVisibleCount(VISIBLE_PAGE_SIZE);
+  }, [session?.id]);
+
+  useEffect(() => {
+    setVisibleCount((prev) => Math.max(prev, messages.length));
+  }, [messages.length]);
+
   // IntersectionObserver on the sentinel div at the top of the message list.
   // When it becomes visible, load the next page of older messages.
   useEffect(() => {
@@ -370,17 +378,20 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     if (!sentinel || !container) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0]?.isIntersecting) {
-          // Save distance from top before prepending to restore scroll later
-          prevScrollDistanceRef.current = captureScrollDistance(container.scrollHeight, container.scrollTop);
+        if (!entries[0]?.isIntersecting) return;
+        prevScrollDistanceRef.current = captureScrollDistance(container.scrollHeight, container.scrollTop);
+        const { startIndex } = getVisibleRenderWindow(messages.length, visibleCount);
+        if (startIndex > 0) {
           setVisibleCount((prev) => getNextVisibleCount(prev));
+        } else if (hasEarlierMessages) {
+          void loadEarlier();
         }
       },
       { root: container, threshold: 0 }
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [visibleCount, messages.length, scrollContainerRef]);
+  }, [hasEarlierMessages, loadEarlier, messages.length, visibleCount, scrollContainerRef]);
 
   // After visibleCount increases (more messages prepended), restore the
   // scroll position so the viewport doesn't jump.
@@ -390,7 +401,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     if (!container) return;
     container.scrollTop = restoreScrollTop(container.scrollHeight, prevScrollDistanceRef.current);
     prevScrollDistanceRef.current = null;
-  }, [visibleCount, scrollContainerRef]);
+  }, [visibleCount, messages.length, scrollContainerRef]);
   // Push session stats up to AppShell for the top bar.
   // Compare scalar fields to avoid loops from new object identity each render.
   const statsKey = sessionStats
@@ -747,7 +758,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
             </div>
           </div>
           <div className="relative mx-auto w-full max-w-[960px]">
-            <NoticeShelf notices={notices} align="right" onDismiss={dismissNotice} />
+            <NoticeShelf notices={notices} align="right" onDismiss={dismissNotice} onHoverChange={setNoticePaused} />
             <GoalPanel
               model={goalModel}
               onAction={(subcommand) => { void runExtensionCommand("goal", subcommand); }}
@@ -776,7 +787,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
           }}
         >
           <div style={{ maxWidth: 780, margin: "0 auto" }}>
-            <NoticeShelf notices={notices} floating align="right" onDismiss={dismissNotice} />
+            <NoticeShelf notices={notices} floating align="right" onDismiss={dismissNotice} onHoverChange={setNoticePaused} />
           </div>
         </div>
         <div ref={scrollContainerRef} className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto pt-4 [scrollbar-width:none]">
@@ -965,7 +976,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
               const { startIndex, hasMore } = getVisibleRenderWindow(rendered.length, visibleCount);
               return (
                 <>
-                  {hasMore && (
+                  {(hasMore || hasEarlierMessages) && (
                      <div ref={sentinelRef} className="py-3 text-center text-xs text-text-muted">
                        {t("chat.loadEarlier", { count: startIndex })}
                     </div>
@@ -1078,7 +1089,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   );
 }
 
-function NoticeShelf({ notices, floating = false, align = "left", onDismiss }: { notices: NoticeItem[]; floating?: boolean; align?: "left" | "right"; onDismiss?: (id: string) => void }) {
+function NoticeShelf({ notices, floating = false, align = "left", onDismiss, onHoverChange }: { notices: NoticeItem[]; floating?: boolean; align?: "left" | "right"; onDismiss?: (id: string) => void; onHoverChange?: (id: string | null) => void }) {
   const { t } = useI18n();
   if (notices.length === 0) return null;
   return (
@@ -1128,6 +1139,10 @@ function NoticeShelf({ notices, floating = false, align = "left", onDismiss }: {
               padding: "10px 8px 10px 12px",
               pointerEvents: "auto",
             }}
+            onMouseEnter={() => onHoverChange?.(notice.id)}
+            onMouseLeave={() => onHoverChange?.(null)}
+            onFocus={() => onHoverChange?.(notice.id)}
+            onBlur={() => onHoverChange?.(null)}
           >
             <span
               style={{

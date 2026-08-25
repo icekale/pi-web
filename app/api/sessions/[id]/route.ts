@@ -7,6 +7,7 @@ import {
   invalidateSessionPathCache,
   invalidateSessionListCache,
   buildSessionContext,
+  parseSessionTail,
   readSessionHeader,
 } from "@/lib/session-reader";
 import { sessionPathKey } from "@/lib/paths";
@@ -14,6 +15,8 @@ import { isReservedSubagentSessionName } from "@/lib/session-relations";
 import { getRpcSession } from "@/lib/rpc-manager";
 import { projectTreeForResponse } from "@/lib/project-tree";
 import { computeSessionTotalActiveMs } from "@/lib/session-timing";
+import { computeSessionStats } from "@/lib/session-stats";
+import type { SessionEntry } from "@/lib/types";
 
 export async function GET(
   req: Request,
@@ -37,8 +40,17 @@ export async function GET(
     const deferThinking = searchParams.has("deferThinking");
     const deferToolResultImages = searchParams.has("deferMedia");
     const deferToolResults = searchParams.has("deferToolResults");
-    const context = buildSessionContext(entries as never, leafId, { deferThinking, deferToolResultImages, deferToolResults });
+    const tail = parseSessionTail(searchParams.get("tail"));
+    const context = buildSessionContext(entries as never, leafId, {
+      deferThinking,
+      deferToolResultImages,
+      deferToolResults,
+      tail,
+    });
     const totalActiveMs = computeSessionTotalActiveMs(entries);
+    const stats = computeSessionStats(entries as unknown as SessionEntry[]);
+    const firstUserEntry = entries.find((entry) => entry.type === "message" && entry.message.role === "user");
+    const firstUserMessage = firstUserEntry?.type === "message" ? firstUserEntry.message : undefined;
 
     const header = sm.getHeader();
     let modified = header?.timestamp ?? new Date().toISOString();
@@ -53,11 +65,10 @@ export async function GET(
       name: sm.getSessionName(),
       created: header.timestamp,
       modified,
-      messageCount: context.messages.length,
-      firstMessage: context.messages.find((m) => m.role === "user")
+      messageCount: stats.totalMessages,
+      firstMessage: firstUserMessage
         ? (() => {
-            const msg = context.messages.find((m) => m.role === "user")!;
-            const c = (msg as { content: unknown }).content;
+            const c = (firstUserMessage as { content: unknown }).content;
             return typeof c === "string" ? c : (Array.isArray(c) ? (c.find((b: { type: string }) => b.type === "text") as { text: string } | undefined)?.text ?? "" : "") || "(no messages)";
           })()
         : "(no messages)",
@@ -72,6 +83,7 @@ export async function GET(
       leafId,
       tree,
       context,
+      stats,
       totalActiveMs,
     });
   } catch (error) {
