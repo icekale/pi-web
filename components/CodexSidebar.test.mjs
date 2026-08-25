@@ -195,7 +195,6 @@ test("desktop sidebar rows keep more air without changing type", () => {
   assert.match(styles, /\.codex-sidebar-section-heading \{[\s\S]*?height: 36px;/);
   assert.doesNotMatch(styles, /\.codex-sidebar-recent \{[^}]*border-bottom:/);
   assert.match(styles, /\.codex-sidebar-recent > \[role="list"\] \{[\s\S]*?padding: 6px 8px 4px;/);
-  assert.match(styles, /\.codex-sidebar-workspace-title \{[\s\S]*?padding: 14px 10px 4px;/);
   assert.match(styles, /\.codex-sidebar-project-list \{[\s\S]*?padding: 4px 8px 10px;/);
   assert.match(styles, /\.codex-recent-session-row \{ height: 38px; \}/);
   assert.match(styles, /\.codex-project \{ margin-bottom: 4px; \}/);
@@ -209,8 +208,21 @@ test("desktop sidebar rows keep more air without changing type", () => {
 test("sidebar buttons inherit family only so Recent matches Projects type", () => {
   assert.match(styles, /\.codex-sidebar button,\s*\n\.codex-sidebar input \{\s*\n  font-family: inherit;/);
   assert.doesNotMatch(styles, /\.codex-sidebar button,\s*\n\.codex-sidebar input \{[^}]*font:\s*inherit/);
-  assert.match(styles, /\.codex-sidebar-workspace-title \{[\s\S]*?font-size: var\(--text-meta\)/);
   assert.match(styles, /\.codex-sidebar-tool-heading \{[\s\S]*?font-size: var\(--text-meta\)/);
+});
+
+test("recent and projects use spacing instead of a divider", () => {
+  assert.match(styles, /\.codex-sidebar-section-heading,[\s\S]*?\.codex-sidebar-workspace-title \{[\s\S]*?font-size: var\(--text-ui\);[\s\S]*?font-weight: var\(--weight-semibold\);/);
+  assert.match(styles, /\.codex-sidebar-workspace-title \{[\s\S]*?height: 32px;[\s\S]*?margin-top: 10px;[\s\S]*?padding: 0 10px;/);
+  assert.match(styles, /\.codex-sidebar-recent > \[role="list"\] \{[\s\S]*?padding: 6px 8px 4px;/);
+  assert.doesNotMatch(styles, /\.codex-sidebar-recent \{[^}]*border-bottom:/);
+  assert.doesNotMatch(styles, /\.codex-sidebar-workspace-title \{[^}]*border-/);
+});
+
+test("selected session leads over its selected project", () => {
+  assert.match(styles, /\.codex-project-row\[data-selected="true"\] \{ color: var\(--text\); background: transparent; \}/);
+  assert.match(styles, /\.codex-project-row\[data-selected="true"\] \.codex-project-name \{ font-weight: var\(--weight-semibold\); \}/);
+  assert.match(styles, /\.codex-session-row\[data-selected="true"\] \{ color: var\(--text\); background: var\(--bg-selected\); \}/);
 });
 
 test("sidebar recomposition preserves worktree switching and creation", () => {
