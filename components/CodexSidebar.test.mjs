@@ -129,24 +129,36 @@ test("desktop sidebar exposes new task, projects, and recent sessions", () => {
   assert.match(sidebar, /sidebar\.projects/);
   assert.match(sidebar, /sidebar\.recent/);
   assert.match(sidebar, /buildRecentSessions\(visibleSessions, activeProjects, archivedIds\)/);
+  assert.match(sidebar, /filterRecentSessions\(buildRecentSessions\(visibleSessions, activeProjects, archivedIds\), filterQuery\)/);
   assert.match(sidebar, /recentSessions\.map/);
 });
 
-test("recent section renders before projects", () => {
+test("recent and projects share one navigation scroll surface", () => {
+  const navigationIndex = sidebar.indexOf('className="codex-sidebar-navigation"');
   const recentIndex = sidebar.indexOf('className="codex-sidebar-section codex-sidebar-recent"');
   const projectIndex = sidebar.indexOf('className="codex-sidebar-project-list"');
-  assert.ok(recentIndex >= 0, "missing recent section");
-  assert.ok(projectIndex >= 0, "missing project list");
+
+  assert.ok(navigationIndex >= 0, "missing sidebar navigation scroll owner");
+  assert.ok(navigationIndex < recentIndex, "navigation should wrap recent");
   assert.ok(recentIndex < projectIndex, "recent should render before projects");
+  assert.match(sidebar, /className="codex-sidebar-navigation"[\s\S]*?className="codex-sidebar-project-list"[\s\S]*?<\/section>\s*<\/div>\s*\{selectedProject/);
+
+  assert.match(styles, /\.codex-sidebar-navigation \{[\s\S]*?min-height: 0;[\s\S]*?flex: 1 1 auto;[\s\S]*?overflow-y: auto;/);
+  assert.doesNotMatch(styles, /\.codex-sidebar-recent \{[^}]*max-height:/);
+  assert.match(styles, /\.codex-sidebar-recent \{[^}]*overflow: visible;/);
+  assert.match(styles, /\.codex-sidebar-recent > \[role="list"\] \{[^}]*overflow: visible;/);
+  assert.match(styles, /\.codex-sidebar-project-list \{[^}]*overflow: visible;/);
 });
 
-test("projects heading sits with the project list, after recent", () => {
-  const recentIndex = sidebar.indexOf('className="codex-sidebar-section codex-sidebar-recent"');
+test("project actions stay at the top; only the heading sits with the list", () => {
   const toolbarIndex = sidebar.indexOf('className="codex-sidebar-workspace-toolbar"');
+  const recentIndex = sidebar.indexOf('className="codex-sidebar-section codex-sidebar-recent"');
+  const headingIndex = sidebar.indexOf('className="codex-sidebar-workspace-title"');
   const projectIndex = sidebar.indexOf('className="codex-sidebar-project-list"');
-  assert.ok(recentIndex >= 0 && toolbarIndex >= 0 && projectIndex >= 0);
-  assert.ok(recentIndex < toolbarIndex, "projects heading should follow recent");
-  assert.ok(toolbarIndex < projectIndex, "projects heading should sit above the project list");
+  assert.ok(toolbarIndex >= 0 && recentIndex >= 0 && headingIndex >= 0 && projectIndex >= 0);
+  assert.ok(toolbarIndex < recentIndex, "search/add/hide should stay above recent");
+  assert.ok(recentIndex < headingIndex, "projects heading should follow recent");
+  assert.ok(headingIndex < projectIndex, "projects heading should sit above the project list");
 });
 
 test("project rows expand to list their sessions", () => {
@@ -166,13 +178,15 @@ test("recent session rows preserve activity, selection, and session management",
   assert.match(sidebar, /method: "DELETE"/);
   assert.match(sidebar, /setRecentOpen\(\(open\) => !open\)/);
   assert.match(sidebar, /aria-expanded=\{recentOpen\}/);
+  assert.match(sidebar, /pi-web:recent-open/);
 });
 
 test("desktop sidebar rows keep more air without changing type", () => {
   assert.match(styles, /\.codex-sidebar-section-heading \{[\s\S]*?height: 36px;/);
-  assert.match(styles, /\.codex-sidebar-recent \{[\s\S]*?border-bottom: 1px solid var\(--border\);/);
-  assert.match(styles, /\.codex-sidebar-recent > \[role="list"\] \{[\s\S]*?padding: 6px 8px 12px;/);
-  assert.match(styles, /\.codex-sidebar-project-list \{[\s\S]*?padding: 10px 8px 10px;/);
+  assert.doesNotMatch(styles, /\.codex-sidebar-recent \{[^}]*border-bottom:/);
+  assert.match(styles, /\.codex-sidebar-recent > \[role="list"\] \{[\s\S]*?padding: 6px 8px 4px;/);
+  assert.match(styles, /\.codex-sidebar-workspace-title \{[\s\S]*?padding: 14px 10px 4px;/);
+  assert.match(styles, /\.codex-sidebar-project-list \{[\s\S]*?padding: 4px 8px 10px;/);
   assert.match(styles, /\.codex-recent-session-row \{ height: 38px; \}/);
   assert.match(styles, /\.codex-project \{ margin-bottom: 4px; \}/);
   assert.match(styles, /\.codex-project-row \{[\s\S]*?min-height: 36px;/);

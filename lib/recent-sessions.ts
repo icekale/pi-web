@@ -1,4 +1,4 @@
-import { sidebarProjectName } from "./codex-sidebar-search";
+import { matchesSidebarQuery, sidebarProjectName, sidebarSessionTitle } from "./codex-sidebar-search";
 import type { SessionInfo } from "./types";
 
 export interface RecentProject {
@@ -38,4 +38,16 @@ export function buildRecentSessions(
     })
     .sort((a, b) => b.session.modified.localeCompare(a.session.modified))
     .slice(0, limit);
+}
+
+export function filterRecentSessions(
+  rows: readonly RecentSessionRow[],
+  query: string,
+): RecentSessionRow[] {
+  if (!query) return [...rows];
+  return rows.filter((row) => matchesSidebarQuery([
+    sidebarSessionTitle(row.session),
+    row.session.firstMessage,
+    row.projectLabel,
+  ], query));
 }

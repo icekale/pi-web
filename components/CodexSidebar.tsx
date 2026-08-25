@@ -17,7 +17,7 @@ import { formatRelativeTime } from "@/lib/i18n/format";
 import { readArchivedSessionIds, writeArchivedSessionIds } from "@/lib/archived-sessions";
 import { filterProjectSessions, matchesSidebarQuery, sidebarProjectName, sidebarSessionTitle } from "@/lib/codex-sidebar-search";
 import type { ProjectPreference } from "@/lib/project-registry";
-import { buildRecentSessions } from "@/lib/recent-sessions";
+import { buildRecentSessions, filterRecentSessions } from "@/lib/recent-sessions";
 import { dispatchSessionRowContextMenu } from "@/lib/session-row-context-menu";
 import { activeSessionRoots } from "@/lib/session-relations";
 import type { SessionInfo } from "@/lib/types";
@@ -57,6 +57,7 @@ type QuickResult =
 
 const COLLAPSED_STORAGE_KEY = "pi-web:collapsed-projects";
 const UNREAD_STORAGE_KEY = "pi-web:unread-session-ids";
+const RECENT_OPEN_STORAGE_KEY = "pi-web:recent-open";
 
 function readStringSet(key: string): Set<string> {
   if (typeof window === "undefined") return new Set();
@@ -76,6 +77,16 @@ function writeStringSet(key: string, values: Set<string>): void {
     else localStorage.removeItem(key);
   } catch {
     // Browser storage is best-effort.
+  }
+}
+
+function readRecentOpen(): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    const value = localStorage.getItem(RECENT_OPEN_STORAGE_KEY);
+    return value === null ? true : value === "1";
+  } catch {
+    return true;
   }
 }
 
@@ -164,7 +175,7 @@ export function CodexSidebar({
   const [worktrees, setWorktrees] = useState<WorktreeEntry[]>([]);
   const [worktreeProjectRoot, setWorktreeProjectRoot] = useState<string | null>(null);
   const [worktreeOpen, setWorktreeOpen] = useState(false);
-  const [recentOpen, setRecentOpen] = useState(true);
+  const [recentOpen, setRecentOpen] = useState(readRecentOpen);
   const [worktreeBusy, setWorktreeBusy] = useState(false);
   const [worktreeError, setWorktreeError] = useState<string | null>(null);
   const [pendingConfirmation, setPendingConfirmation] = useState<{ type: "worktree"; path: string } | null>(null);
@@ -232,6 +243,13 @@ export function CodexSidebar({
   useEffect(() => { void loadData(false); }, [loadData, refreshKey]);
   useEffect(() => { writeStringSet(COLLAPSED_STORAGE_KEY, collapsed); }, [collapsed]);
   useEffect(() => { writeStringSet(UNREAD_STORAGE_KEY, unreadIds); }, [unreadIds]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(RECENT_OPEN_STORAGE_KEY, recentOpen ? "1" : "0");
+    } catch {
+      // Browser storage is best-effort.
+    }
+  }, [recentOpen]);
   useEffect(() => { writeArchivedSessionIds(archivedIds); }, [archivedIds]);
   useEffect(() => { setArchivedIds(readArchivedSessionIds()); }, [refreshKey]);
 
@@ -299,8 +317,8 @@ export function CodexSidebar({
     [projects],
   );
   const recentSessions = useMemo(
-    () => buildRecentSessions(visibleSessions, activeProjects, archivedIds),
-    [activeProjects, archivedIds, visibleSessions],
+    () => filterRecentSessions(buildRecentSessions(visibleSessions, activeProjects, archivedIds), filterQuery),
+    [activeProjects, archivedIds, filterQuery, visibleSessions],
   );
   const quickSearch = quickQuery.trim().toLowerCase();
   const quickProjectResults = useMemo(() => activeProjects
@@ -670,13 +688,43 @@ export function CodexSidebar({
         <span>{t("sidebar.newTask")}</span>
       </button>
 
+      <div className="codex-sidebar-workspace-toolbar">
+        <div className="codex-sidebar-workspace-actions">
+          <IconButton label={t("sidebar.searchProjects")} onClick={toggleProjectSearch}>
+            <Search className="codex-sidebar-search-trigger" size={15} aria-hidden="true" />
+          </IconButton>
+          <IconButton label={t("sidebar.addProject")} onClick={() => setDirectoryPickerOpen(true)}>
+            <FolderPlus size={15} aria-hidden="true" />
+          </IconButton>
+          {onToggleSidebar ? (
+            <IconButton label={t("sidebar.hide")} onClick={onToggleSidebar}>
+              <PanelLeft size={15} aria-hidden="true" />
+            </IconButton>
+          ) : null}
+        </div>
+      </div>
+
+      {projectSearchOpen && (
+        <div className="codex-sidebar-search-wrap">
+          <Search size={14} aria-hidden="true" />
+          <input ref={projectSearchInputRef} value={filter} onChange={(event) => setFilter(event.target.value)} placeholder={t("sidebar.searchProjects")} aria-label={t("sidebar.searchProjects")} />
+          <IconButton label={t("i18n.close")} onClick={toggleProjectSearch}>
+            <X size={14} aria-hidden="true" />
+          </IconButton>
+        </div>
+      )}
+
+      <div className="codex-sidebar-navigation">
       <section className="codex-sidebar-section codex-sidebar-recent">
-        <button type="button" className="codex-sidebar-tool-heading codex-sidebar-section-heading" onClick={() => setRecentOpen((open) => !open)} aria-expanded={recentOpen}>
+        <button type="button" className="codex-sidebar-section-heading" onClick={() => setRecentOpen((open) => !open)} aria-expanded={recentOpen}>
           <Chevron open={recentOpen} />
           <span>{t("sidebar.recent")}</span>
         </button>
         {recentOpen && (
         <div role="list">
+          {filterQuery && recentSessions.length === 0 && (
+            <div className="codex-sidebar-empty">{t("sidebar.noMatches")}</div>
+          )}
           {recentSessions.map(({ session, projectLabel }) => (
             <SessionRow
               key={session.id}
@@ -707,33 +755,7 @@ export function CodexSidebar({
       </section>
 
       <section className="codex-sidebar-section">
-        <div className="codex-sidebar-workspace-toolbar">
-          <div className="codex-sidebar-workspace-title">{t("sidebar.projects")}</div>
-          <div className="codex-sidebar-workspace-actions">
-            <IconButton label={t("sidebar.searchProjects")} onClick={toggleProjectSearch}>
-              <Search className="codex-sidebar-search-trigger" size={15} aria-hidden="true" />
-            </IconButton>
-            <IconButton label={t("sidebar.addProject")} onClick={() => setDirectoryPickerOpen(true)}>
-              <FolderPlus size={15} aria-hidden="true" />
-            </IconButton>
-            {onToggleSidebar ? (
-              <IconButton label={t("sidebar.hide")} onClick={onToggleSidebar}>
-                <PanelLeft size={15} aria-hidden="true" />
-              </IconButton>
-            ) : null}
-          </div>
-        </div>
-
-        {projectSearchOpen && (
-          <div className="codex-sidebar-search-wrap">
-            <Search size={14} aria-hidden="true" />
-            <input ref={projectSearchInputRef} value={filter} onChange={(event) => setFilter(event.target.value)} placeholder={t("sidebar.searchProjects")} aria-label={t("sidebar.searchProjects")} />
-            <IconButton label={t("i18n.close")} onClick={toggleProjectSearch}>
-              <X size={14} aria-hidden="true" />
-            </IconButton>
-          </div>
-        )}
-
+        <div className="codex-sidebar-workspace-title">{t("sidebar.projects")}</div>
         <div className="codex-sidebar-project-list" role="list">
           {loading && <div className="codex-sidebar-empty">{t("sidebar.loading")}</div>}
           {error && <div className="codex-sidebar-error">{error}</div>}
@@ -870,6 +892,7 @@ export function CodexSidebar({
           })}
         </div>
       </section>
+      </div>
 
       {selectedProject && !selectedProject.archived && !selectedProject.removed && worktrees.length > 0 && (
         <div className="codex-sidebar-project-tools">

@@ -947,10 +947,16 @@ pre, code {
   padding: 0 9px 0 10px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   flex-shrink: 0;
 }
 .codex-sidebar-workspace-title {
+  height: auto;
+  min-height: 36px;
+  padding: 14px 10px 4px;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
   color: var(--text-muted);
   font-size: var(--text-meta);
   font-weight: var(--weight-medium);
@@ -1123,15 +1129,34 @@ pre, code {
 }
 .codex-sidebar-new-task:hover { background: var(--bg-hover); }
 .codex-sidebar-section-heading {
+  width: 100%;
   height: 36px;
   padding: 0 10px;
   display: flex;
-  align-items: stretch;
-  gap: 14px;
+  align-items: center;
+  gap: 6px;
   flex-shrink: 0;
+  border: 0;
   color: var(--text-muted);
+  background: transparent;
   font-size: var(--text-meta);
   font-weight: var(--weight-medium);
+  text-align: left;
+  cursor: pointer;
+}
+.codex-sidebar-section-heading:hover { color: var(--text); background: var(--bg-hover); }
+.codex-sidebar-navigation {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.codex-sidebar-navigation > .codex-sidebar-section {
+  overflow: visible;
+}
+.codex-sidebar-navigation > .codex-sidebar-section:not(.codex-sidebar-recent) {
+  flex: none;
 }
 .codex-sidebar-section {
   min-height: 0;
@@ -1139,23 +1164,19 @@ pre, code {
   flex-direction: column;
   overflow: hidden;
 }
-.codex-sidebar-section:not(.codex-sidebar-recent) { flex: 1 1 auto; }
 .codex-sidebar-project-list {
   min-height: 0;
-  flex: 1 1 auto;
-  padding: 10px 8px 10px;
-  overflow: auto;
+  padding: 4px 8px 10px;
+  overflow: visible;
 }
 .codex-sidebar-recent {
-  flex: 0 1 38%;
-  min-height: 120px;
-  border-bottom: 1px solid var(--border);
+  min-height: 0;
+  overflow: visible;
 }
 .codex-sidebar-recent > [role="list"] {
   min-height: 0;
-  flex: 1 1 auto;
-  padding: 6px 8px 12px;
-  overflow: auto;
+  padding: 6px 8px 4px;
+  overflow: visible;
 }
 .codex-recent-session-title { font-weight: 520; }
 .codex-recent-session-time { flex-shrink: 0; color: var(--text-dim); font-size: var(--text-meta); }
@@ -4136,8 +4157,12 @@ span.linenumber {
   }
   .codex-quick-switcher-search { min-height: 56px; }
   .codex-quick-switcher-results button { min-height: 52px; }
-  .codex-sidebar-tool-heading {
+  .codex-sidebar-tool-heading,
+  .codex-sidebar-section-heading {
     height: 44px;
+  }
+  .codex-sidebar-workspace-title {
+    min-height: 44px;
   }
   .codex-sidebar-footer-item {
     height: 48px;
