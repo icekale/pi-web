@@ -33,7 +33,16 @@ function copyExternalPackages(outputDir: string): Plugin {
           console.warn(`[copy-external-packages] source not found: ${source}`);
           continue;
         }
-        cpSync(source, resolve(targetRoot, name), { recursive: true, force: true });
+        // Skip npm `.bin` shims. Node's `fs.cp` follows those symlinks and
+        // throws EINVAL when a nested package bin points back at itself
+        // (seen with `pi-coding-agent/node_modules/.bin/semver` on Linux).
+        // Runtime resources (themes, prompts, assets) live next to the
+        // package files, not in `.bin`.
+        cpSync(source, resolve(targetRoot, name), {
+          recursive: true,
+          force: true,
+          filter: (src) => !src.split(sep).includes(".bin"),
+        });
       }
     },
   };
