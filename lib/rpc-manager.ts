@@ -25,6 +25,7 @@ import type {
   SessionMessageEntry,
 } from "./types";
 import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS, type HeadlessCustomUiTui } from "./custom-ui-terminal";
+import { createEmbeddedHostCompatExtension, installEmbeddedHostCompat } from "./embedded-host-compat";
 import { createSubagentRpcCapture, SubagentRpcClient, type SubagentRpcCapture } from "./subagent-rpc";
 import { createReasoningRouterExtension } from "./reasoning-router";
 
@@ -1885,8 +1886,10 @@ export async function startRpcSession(
     // Gate untrusted project extensions so opening a repository does not run
     // its .pi/extensions code automatically (see lib/project-trust.ts, #236).
     const trustReloadOptions = projectTrustReloadOptions(sessionCwd, agentDir);
+    installEmbeddedHostCompat();
     const subagentRpc = createSubagentRpcCapture();
     const reasoningRouter = createReasoningRouterExtension();
+    const embeddedHost = createEmbeddedHostCompatExtension({ cwd: sessionCwd });
     const settingsManager = SettingsManager.create(sessionCwd, agentDir);
     const services = await createAgentSessionServices({
       cwd: sessionCwd,
@@ -1898,6 +1901,7 @@ export async function startRpcSession(
             cwd: sessionCwd,
             settings: settingsManager,
           }),
+          embeddedHost,
           subagentRpc.extension,
           reasoningRouter,
         ],

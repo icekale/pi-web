@@ -1,32 +1,21 @@
 import { randomUUID } from "crypto";
 import { execFile } from "child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync } from "fs";
+import { mkdirSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
-import { basename, dirname, join } from "path";
+import { basename, join } from "path";
 import { promisify } from "util";
-import { fileURLToPath, pathToFileURL } from "url";
+import { pathToFileURL } from "url";
+import { getPackageDir } from "@earendil-works/pi-coding-agent";
+import { resolvePiCliPath } from "@/lib/pi-cli";
 import { resolveSessionPath } from "@/lib/session-reader";
 
 const execFileAsync = promisify(execFile);
 
 export const runtime = "nodejs";
 
-type PiCodingAgentModule = {
-  getPackageDir: () => string;
-};
-
 type ExportHtmlModule = {
   exportFromFile: (inputPath: string, outputPath: string) => Promise<string>;
 };
-
-async function getPiPackageDir(): Promise<string | null> {
-  try {
-    const { getPackageDir } = (await import("@earendil-works/pi-coding-agent")) as PiCodingAgentModule;
-    return getPackageDir();
-  } catch {
-    return null;
-  }
-}
 
 function encodeHeaderValue(value: string): string {
   return encodeURIComponent(value).replace(/[!'()*]/g, (ch) =>
@@ -40,41 +29,8 @@ function getContentDisposition(fileName: string, inline: boolean): string {
   return `${disposition}; filename="${fallback}"; filename*=UTF-8''${encodeHeaderValue(fileName)}`;
 }
 
-async function getPiCliPath(): Promise<string | null> {
-  const candidates = new Set<string>();
-  const packageDir = await getPiPackageDir();
-
-  if (packageDir) {
-    candidates.add(join(packageDir, "dist", "cli.js"));
-  }
-
-  try {
-    const resolver = (import.meta as ImportMeta & {
-      resolve?: (specifier: string) => string | Promise<string>;
-    }).resolve;
-    if (typeof resolver === "function") {
-      const indexUrl = await resolver("@earendil-works/pi-coding-agent");
-      candidates.add(join(dirname(fileURLToPath(indexUrl)), "cli.js"));
-    }
-  } catch {
-    // Next.js production bundles can strip import.meta.resolve.
-  }
-
-  candidates.add(
-    join(
-      process.cwd(),
-      "node_modules",
-      "@earendil-works",
-      "pi-coding-agent",
-      "dist",
-      "cli.js"
-    )
-  );
-
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) return candidate;
-  }
-  return null;
+function getPiCliPath(): string | null {
+  return resolvePiCliPath();
 }
 
 /**
@@ -214,7 +170,7 @@ function patchExportHtml(html: string): string {
 }
 
 async function exportSession(filePath: string, outputPath: string): Promise<void> {
-  const cliPath = await getPiCliPath();
+  const cliPath = getPiCliPath();
   if (cliPath) {
     await execFileAsync(process.execPath, [cliPath, "--export", filePath, outputPath], {
       cwd: process.cwd(),
@@ -229,8 +185,12 @@ async function exportSession(filePath: string, outputPath: string): Promise<void
     return;
   }
 
-  const packageDir = await getPiPackageDir();
-  if (!packageDir) throw new Error("pi CLI not found");
+  let packageDir: string;
+  try {
+    packageDir = getPackageDir();
+  } catch {
+    throw new Error("pi CLI not found");
+  }
 
   const exporterUrl = pathToFileURL(join(packageDir, "dist", "core", "export-html", "index.js")).href;
   const { exportFromFile } = (await import(exporterUrl)) as ExportHtmlModule;
