@@ -185,6 +185,8 @@ export class AgentSessionWrapper {
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private onDestroyCallback: (() => void) | null = null;
   private shutdownPromise: Promise<void> | null = null;
+  private sessionShutdownEmitted = false;
+  private forceShutdownOnIdle = false;
   private _alive = true;
   private readonly subagentRpcClient: SubagentRpcClient;
   private liveSubagentSessionIds: string[] = [];
@@ -495,8 +497,10 @@ export class AgentSessionWrapper {
 
   private resetIdleTimer(): void {
     if (this.idleTimer) clearTimeout(this.idleTimer);
+    if (!this._alive) return;
+    if (!this.isRunning()) this.forceShutdownOnIdle = false;
     this.idleTimer = setTimeout(() => {
-      if (this.isRunning()) {
+      if (this.isRunning() && !this.forceShutdownOnIdle) {
         this.resetIdleTimer();
         return;
       }
@@ -504,6 +508,12 @@ export class AgentSessionWrapper {
         console.error("[pi-web] failed to shut down idle session:", error instanceof Error ? error.message : error);
       });
     }, 10 * 60 * 1000);
+  }
+
+  private isReadonlyStatusCommand(type: string): boolean {
+    return type === "get_state"
+      || type === "get_session_stats"
+      || type === "get_last_assistant_text";
   }
 
   private persistBashOnlySession(): void {
@@ -540,17 +550,17 @@ export class AgentSessionWrapper {
   }
 
   async send(command: Record<string, unknown>): Promise<unknown> {
+    const type = command.type as string;
     if (this.shutdownPromise) {
       // The wrapper is being torn down (idle timeout, delete, fork). Mutating
       // commands would start work that the imminent dispose() would abort;
       // refuse them so the caller falls back to a fresh wrapper.
-      const type = command.type as string;
-      if (type !== "get_state" && type !== "get_session_stats" && type !== "get_last_assistant_text") {
+      if (!this.isReadonlyStatusCommand(type)) {
         throw new Error("Session is shutting down");
       }
     }
-    this.resetIdleTimer();
-    const type = command.type as string;
+    // Status reconciliation must not postpone forced cleanup after Stop.
+    if (!this.isReadonlyStatusCommand(type)) this.resetIdleTimer();
     if (this.shouldWaitForExtensions(type)) await this.waitForExtensionsBound();
 
     if (type === "prompt" || type === "steer" || type === "follow_up") {
@@ -649,8 +659,13 @@ export class AgentSessionWrapper {
       }
 
       case "abort":
-        await this.withFinalRunningNotification(() => this.inner.abort());
-        return null;
+        this.forceShutdownOnIdle = true;
+        try {
+          await this.withFinalRunningNotification(() => this.inner.abort());
+          return null;
+        } finally {
+          if (!this.isRunning()) this.forceShutdownOnIdle = false;
+        }
 
       case "get_state": {
         const model = this.inner.model;
@@ -943,6 +958,7 @@ export class AgentSessionWrapper {
       }
 
       case "abort_bash": {
+        this.forceShutdownOnIdle = true;
         this.inner.abortBash();
         return null;
       }
@@ -966,15 +982,45 @@ export class AgentSessionWrapper {
     this.pendingUiResponses.clear();
     this.pendingUiRequests.clear();
     this.clearExtensionWidgets(false);
-    try {
-      this.inner.dispose();
-    } finally {
+
+    const finishDispose = () => {
       try {
-        this.onDestroyCallback?.();
+        this.inner.dispose();
       } finally {
-        notifyRunningChange();
+        try {
+          this.onDestroyCallback?.();
+        } finally {
+          notifyRunningChange();
+        }
       }
+    };
+
+    // Always emit session_shutdown before dispose, even when callers skip
+    // shutdown() (process exit, direct destroy). Await when possible so
+    // extension children (MCP bridges, Dreamer, historian) can reap first.
+    if (this.sessionShutdownEmitted) {
+      finishDispose();
+      return;
     }
+
+    this.sessionShutdownEmitted = true;
+    const emit = this.inner.extensionRunner?.emit;
+    if (typeof emit !== "function") {
+      finishDispose();
+      return;
+    }
+
+    void (async () => emit.call(
+      this.inner.extensionRunner,
+      { type: "session_shutdown", reason: "quit" },
+    ))()
+      .catch((error) => {
+        console.error(
+          "[pi-web] session_shutdown before dispose failed:",
+          error instanceof Error ? error.message : error,
+        );
+      })
+      .finally(finishDispose);
   }
 
   async shutdown(): Promise<void> {
@@ -993,7 +1039,9 @@ export class AgentSessionWrapper {
         }
         // Flush any in-flight turn (including tool results) before disposing;
         // dispose() aborts synchronously and would drop unpersisted output.
-        if (this.isRunning()) {
+        // After Stop, abort may already be stuck — skip a second wait so idle
+        // teardown can still emit session_shutdown and reap extension children.
+        if (this.isRunning() && !this.forceShutdownOnIdle) {
           try {
             await this.inner.abort();
           } catch (error) {
@@ -1003,7 +1051,10 @@ export class AgentSessionWrapper {
             );
           }
         }
-        await this.inner.extensionRunner.emit?.({ type: "session_shutdown", reason: "quit" });
+        if (!this.sessionShutdownEmitted) {
+          this.sessionShutdownEmitted = true;
+          await this.inner.extensionRunner.emit?.({ type: "session_shutdown", reason: "quit" });
+        }
       } finally {
         this.destroy();
       }
@@ -1577,10 +1628,16 @@ declare global {
 function getRegistry(): Map<string, AgentSessionWrapper> {
   if (!globalThis.__piSessions) {
     globalThis.__piSessions = new Map();
-    const cleanup = () => globalThis.__piSessions?.forEach((s) => s.destroy());
-    process.once("exit", cleanup);
-    process.once("SIGINT", cleanup);
-    process.once("SIGTERM", cleanup);
+    const destroy = () => globalThis.__piSessions?.forEach((session) => session.destroy());
+    const shutdown = () => {
+      const sessions = Array.from(globalThis.__piSessions?.values() ?? []);
+      void Promise.allSettled(sessions.map((session) => session.shutdown()));
+    };
+    // Node cannot await work from an exit handler; direct destruction starts
+    // extension cleanup synchronously as a final best effort.
+    process.once("exit", destroy);
+    process.once("SIGINT", shutdown);
+    process.once("SIGTERM", shutdown);
   }
   return globalThis.__piSessions;
 }
