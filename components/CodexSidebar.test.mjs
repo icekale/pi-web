@@ -71,6 +71,9 @@ test("keeps the file explorer out of the project sidebar", () => {
   assert.doesNotMatch(sidebar, /<FileExplorer/);
   assert.doesNotMatch(sidebar, /files\.explorer/);
   assert.doesNotMatch(sidebar, /saveExplorerOpen/);
+  assert.match(sidebar, /<GitChangesPanel/);
+  assert.match(sidebar, /gitRefreshKey\?: number/);
+  assert.match(sidebar, /onOpenFile\?:/);
 });
 
 test("settings footer is a gear with a label", () => {

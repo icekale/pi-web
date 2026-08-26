@@ -23,6 +23,7 @@ import { activeSessionRoots } from "@/lib/session-relations";
 import type { SessionInfo } from "@/lib/types";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { DialogShell } from "./DialogShell";
+import { GitChangesPanel } from "./GitChangesPanel";
 
 interface Props {
   selectedSessionId: string | null;
@@ -32,12 +33,14 @@ interface Props {
   skipInitialProjectSelection?: boolean;
   onInitialRestoreDone?: () => void;
   refreshKey?: number;
+  gitRefreshKey?: number;
   onSessionDeleted?: (sessionId: string) => void;
   selectedCwd?: string | null;
   onCwdChange?: (cwd: string | null, projectRoot?: string | null) => void;
   onBackgroundTaskDone?: () => void;
   onRunningSessionIdsChange?: (ids: Set<string>) => void;
   onToggleSidebar?: () => void;
+  onOpenFile?: (filePath: string, fileName: string, options?: { sourceSessionId?: string | null; modeHint?: "diff" }) => void;
 }
 
 interface ProjectView extends ProjectPreference {
@@ -153,12 +156,14 @@ export function CodexSidebar({
   skipInitialProjectSelection,
   onInitialRestoreDone,
   refreshKey,
+  gitRefreshKey,
   onSessionDeleted,
   selectedCwd: selectedCwdProp,
   onCwdChange,
   onBackgroundTaskDone,
   onRunningSessionIdsChange,
   onToggleSidebar,
+  onOpenFile,
 }: Props) {
   const { t, locale } = useI18n();
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
@@ -927,8 +932,10 @@ export function CodexSidebar({
       </section>
       </div>
 
-      {selectedProject && !selectedProject.archived && !selectedProject.removed && worktrees.length > 0 && (
+      {selectedProject && !selectedProject.archived && !selectedProject.removed && (
         <div className="codex-sidebar-project-tools">
+            <GitChangesPanel cwd={selectedCwd} refreshKey={gitRefreshKey} onOpenFile={onOpenFile} />
+            {worktrees.length > 0 && (
             <div className="codex-worktree-block">
               <button type="button" className="codex-sidebar-tool-heading" onClick={() => setWorktreeOpen((open) => !open)}>
                 <Chevron open={worktreeOpen} />
@@ -953,6 +960,7 @@ export function CodexSidebar({
                 </div>
               )}
             </div>
+            )}
         </div>
       )}
       {menuProject && createPortal((() => {

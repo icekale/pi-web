@@ -1187,12 +1187,14 @@ export function AppShell() {
         skipInitialProjectSelection={initialNavigation.requestedCwd !== null}
         onInitialRestoreDone={handleInitialRestoreDone}
         refreshKey={refreshKey}
+        gitRefreshKey={explorerRefreshKey}
         onSessionDeleted={handleSessionDeleted}
         selectedCwd={selectedSession?.cwd ?? newSessionCwd ?? null}
         onCwdChange={handleCwdChange}
         onBackgroundTaskDone={handleBackgroundTaskDone}
         onRunningSessionIdsChange={handleRunningSessionIdsChange}
         onToggleSidebar={handleSidebarToggle}
+        onOpenFile={handleOpenFile}
       />
       <div className="codex-sidebar-footer">
         <button className="codex-sidebar-footer-item" onClick={() => setSettingsOpen(true)} title={translate("common.settings")} aria-label={translate("common.settings")}>
