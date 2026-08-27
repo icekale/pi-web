@@ -124,6 +124,41 @@ test("a rejected submission preserves a different run reported by the server", (
   assert.match(reconcileSource, /rpcPromptPendingRef\.current = Boolean\(state\.isPromptRunning\)/);
   assert.match(reconcileSource, /if \(busy\) \{[\s\S]*?maintainEventsConnected\(sid\)/);
   assert.match(reconcileSource, /if \(!agentRunningRef\.current\) return;[\s\S]*?finishPromptWithoutStream/);
+  assert.ok(
+    reconcileSource.indexOf("state?.contextUsage") < reconcileSource.indexOf("if (busy)"),
+    "context usage must update while a run is still busy",
+  );
+});
+
+test("context usage refreshes from assistant completions and live agent state", () => {
+  const loadSource = source.slice(
+    source.indexOf("  const loadSession = useCallback"),
+    source.indexOf("  const loadTools = useCallback"),
+  );
+  const messageEndSource = source.slice(
+    source.indexOf('case "message_end"'),
+    source.indexOf('case "tool_execution_start"'),
+  );
+  const agentEndSource = source.slice(
+    source.indexOf('case "agent_end"'),
+    source.indexOf('case "agent_settled"'),
+  );
+  const historyRefreshSource = source.slice(
+    source.indexOf("  // Read-only history mode:"),
+    source.indexOf("  useEffect(() => {\n    onSystemPromptChange"),
+  );
+
+  assert.match(loadSource, /includeState = false/);
+  assert.match(loadSource, /GET \/api\/agent\/\[id\]/);
+  assert.match(loadSource, /fetch\(`\/api\/agent\/\$\{encodeURIComponent\(sid\)\}`\)/);
+  assert.match(messageEndSource, /contextUsageFromAssistant\(usage, prev\?\.contextWindow \?\? 0, completed\.stopReason\)/);
+  assert.ok(
+    agentEndSource.indexOf("d.state?.contextUsage") < agentEndSource.indexOf("promptRunIdRef.current !== finishingRunId"),
+    "agent_end must apply context usage before the run-generation gate",
+  );
+  assert.match(historyRefreshSource, /loadSession\(session\.id, false, false\)/);
+  assert.match(source, /loadSession\(session\.id, true, !opts\.readOnlyHistory\)/);
+  assert.match(source, /from "@\/lib\/conversation-context"/);
 });
 
 test("new-session promotion rekeys drafts before publishing the real session", () => {

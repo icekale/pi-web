@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { ChevronRight, RefreshCw } from "lucide-react";
 import { useGitStatus } from "@/hooks/useGitStatus";
 import { useI18n } from "@/hooks/useI18n";
@@ -24,13 +24,7 @@ function Chevron({ open }: { open: boolean }) {
 export function GitChangesPanel({ cwd, refreshKey, onOpenFile }: Props) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
-  const [userToggled, setUserToggled] = useState(false);
   const { status, visible, loading, refresh } = useGitStatus({ cwd, refreshKey, open });
-  const fileCount = status?.files.length ?? 0;
-
-  useEffect(() => {
-    if (!userToggled) setOpen(fileCount > 0);
-  }, [fileCount, userToggled]);
 
   const { rows, omitted } = useMemo(
     () => (status && cwd ? buildGitChangeRows(status.files, cwd) : { rows: [], omitted: 0 }),
@@ -51,10 +45,7 @@ export function GitChangesPanel({ cwd, refreshKey, onOpenFile }: Props) {
         <button
           type="button"
           className="codex-sidebar-tool-heading"
-          onClick={() => {
-            setUserToggled(true);
-            setOpen((current) => !current);
-          }}
+          onClick={() => setOpen((current) => !current)}
           aria-expanded={open}
           title={statsTitle}
         >

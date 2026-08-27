@@ -10,6 +10,36 @@ export interface ConversationContextModel {
   cacheHitRate: number | null;
 }
 
+// Stay aligned with pi SDK `calculateContextTokens`. Do not import that helper
+// here — it lives in a Node-only package and would break the browser bundle.
+export function contextTokensFromUsage(usage: {
+  totalTokens?: number;
+  input?: number;
+  output?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+}): number {
+  return usage.totalTokens || (usage.input ?? 0) + (usage.output ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0);
+}
+
+export function contextUsageFromAssistant(
+  usage: {
+    totalTokens?: number;
+    input?: number;
+    output?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+  } | undefined,
+  contextWindow: number,
+  stopReason?: string,
+): ContextUsage | null {
+  if (!usage || contextWindow <= 0) return null;
+  if (stopReason === "aborted" || stopReason === "error") return null;
+  const tokens = contextTokensFromUsage(usage);
+  if (tokens <= 0) return null;
+  return { tokens, contextWindow, percent: (tokens / contextWindow) * 100 };
+}
+
 export function buildConversationContextModel({
   stats,
   contextUsage,

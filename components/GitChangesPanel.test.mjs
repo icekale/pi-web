@@ -13,6 +13,8 @@ test("opens file tabs in diff mode and hides when git status is unavailable", ()
   assert.match(panel, /onOpenFile\?\.\(row\.file\.filePath, row\.fileName, \{ modeHint: "diff" \}\)/);
   assert.match(panel, /files\.changeStats/);
   assert.match(panel, /sidebar\.refreshChanges/);
+  assert.match(panel, /useState\(false\)/);
+  assert.doesNotMatch(panel, /setOpen\(fileCount > 0\)/);
   assert.doesNotMatch(panel, /FileExplorer/);
 });
 

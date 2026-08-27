@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo, useReducer } from "react";
 import type {
   AgentMessage,
+  AssistantMessage,
   BlockingExtensionUiRequest,
   ExtensionStatusItem,
   ExtensionUiRequest,
@@ -18,6 +19,7 @@ import { clearDraft, rekeyDraft, restoreDraftSubmission } from "@/lib/draft-stor
 import { getPreferredToolPreset, setPreferredToolPreset } from "@/lib/tool-preset-preference";
 import { getToolNamesForPreset, type ToolEntry, type ToolPreset } from "@/lib/tool-presets";
 import type { SessionStatsInfo } from "@/lib/pi-types";
+import { contextUsageFromAssistant } from "@/lib/conversation-context";
 import { userMessageKey } from "@/lib/prompt-recovery";
 import { AgentEventConnection } from "@/lib/agent-event-connection";
 import { getToolExecutionProgress } from "@/lib/tool-execution-progress";
@@ -550,6 +552,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [textDeltaBatcher]);
 
+  const refreshContextUsage = useCallback((sid: string) => {
+    // GET /api/agent/[id] reads a live wrapper if one exists and never starts one.
+    // /api/sessions/[id]/state would call startRpcSession() and wake an idle runtime.
+    fetch(`/api/agent/${encodeURIComponent(sid)}`)
+      .then((r) => r.json())
+      .then((d: { state?: AgentStateResponse }) => {
+        if (sessionIdRef.current !== sid) return;
+        if (d.state?.contextUsage !== undefined) setContextUsage(d.state.contextUsage ?? null);
+      })
+      .catch(() => {});
+  }, []);
+
   const loadContext = useCallback(async (sid: string, leafId: string | null) => {
     try {
       const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1", deferToolResults: "1" });
@@ -927,7 +941,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     // must not overwrite the messages of the run currently streaming.
     if (promptRunIdRef.current !== runId) return;
     try {
-      if (sid) await loadSession(sid);
+      if (sid) {
+        await loadSession(sid);
+        refreshContextUsage(sid);
+      }
     } finally {
       if (promptRunIdRef.current !== runId) return;
       const promptWasPending = rpcPromptPendingRef.current;
@@ -943,7 +960,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       if (sid) scheduleEventStreamClose(sid);
     }
-  }, [loadSession, notifyPromptStage, onAgentEnd, scheduleEventStreamClose, settleUiStage]);
+  }, [loadSession, notifyPromptStage, onAgentEnd, refreshContextUsage, scheduleEventStreamClose, settleUiStage]);
 
   const waitForPromptSettlement = useCallback(async (sid: string, runId?: number) => {
     await delay(PROMPT_SETTLE_INITIAL_DELAY_MS);
@@ -1018,6 +1035,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       // (wrapper destroyed) means nothing is compacting.
       setIsCompacting(state?.isCompacting ?? false);
       setQueuedMessages(normalizeQueuedMessages(state?.queuedMessages));
+      if (state?.contextUsage !== undefined) setContextUsage(state.contextUsage ?? null);
       const busy = data.running && state
         && (state.isStreaming || state.isPromptRunning || state.isCompacting);
       if (busy) {
@@ -1028,7 +1046,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       if (!agentRunningRef.current) return;
       if (state) {
-        if (state.contextUsage !== undefined) setContextUsage(state.contextUsage ?? null);
         if (state.systemPrompt !== undefined) setSystemPrompt(state.systemPrompt ?? null);
         if (state.extensionStatuses !== undefined) setExtensionStatuses(state.extensionStatuses ?? []);
         if (state.extensionWidgets !== undefined) setExtensionWidgets(state.extensionWidgets ?? []);
@@ -1119,12 +1136,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           fetch(`/api/agent/${encodeURIComponent(sid)}`)
             .then((r) => r.json())
             .then((d: { state?: AgentStateResponse }) => {
+              if (sessionIdRef.current !== sid) return;
+              if (d.state?.contextUsage !== undefined) setContextUsage(d.state.contextUsage ?? null);
               if (
-                sessionIdRef.current !== sid
-                || promptRunIdRef.current !== finishingRunId
+                promptRunIdRef.current !== finishingRunId
                 || agentLifecycleGenerationRef.current !== finishingLifecycleGeneration
               ) return;
-              if (d.state?.contextUsage !== undefined) setContextUsage(d.state.contextUsage ?? null);
               if (d.state?.systemPrompt !== undefined) setSystemPrompt(d.state.systemPrompt ?? null);
               if (d.state?.extensionStatuses !== undefined) setExtensionStatuses(d.state.extensionStatuses ?? []);
               if (d.state?.extensionWidgets !== undefined) setExtensionWidgets(d.state.extensionWidgets ?? []);
@@ -1146,6 +1163,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setIsCompacting(false);
         if (sid) {
           void loadSession(sid);
+          refreshContextUsage(sid);
           scheduleEventStreamClose(sid);
         }
         if (wasRunning) onAgentEnd?.();
@@ -1162,7 +1180,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (!promptWasPending && !firstNotification) break;
 
           const sid = sessionIdRef.current;
-          if (sid) void loadSession(sid);
+          if (sid) {
+            void loadSession(sid);
+            refreshContextUsage(sid);
+          }
           // An extension-injected agent may already have started before the
           // command's prompt_done. Keep that active stage visible and let its
           // agent_settled event perform the next completion transition.
@@ -1249,6 +1270,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           });
         } else if (completed) {
           setMessages((prev) => [...prev, normalizeToolCalls(completed)]);
+          if (completed.role === "assistant") {
+            const usage = (completed as AssistantMessage).usage;
+            setContextUsage((prev) => contextUsageFromAssistant(usage, prev?.contextWindow ?? 0, completed.stopReason) ?? prev);
+          }
         }
         dispatch({ type: "end" });
         setAgentPhase({ kind: "waiting_model" });
@@ -1319,14 +1344,17 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           setCompactResult(null);
         } else if (!event.aborted) {
           setCompactResult(readCompactResult(event.result, (event.reason as string | undefined) ?? "auto"));
-          if (sessionIdRef.current) loadSession(sessionIdRef.current);
+          if (sessionIdRef.current) {
+            loadSession(sessionIdRef.current);
+            refreshContextUsage(sessionIdRef.current);
+          }
         }
         break;
       case "extension_ui_request":
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
     }
-  }, [addNotice, cancelEventStreamGrace, clearConversationPlanWidget, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, scheduleEventStreamClose, scrollToBottom, settleUiStage]);
+  }, [addNotice, cancelEventStreamGrace, clearConversationPlanWidget, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, refreshContextUsage, scheduleEventStreamClose, scrollToBottom, settleUiStage]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
@@ -1611,13 +1639,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const result = await sendAgentCommand<CompactCommandResult>(sid, { type: "compact" });
       setCompactResult(readCompactResult(result, "manual"));
       await loadSession(sid, true);
+      refreshContextUsage(sid);
     } catch (e) {
       setCompactError(e instanceof Error ? e.message : String(e));
       setCompactResult(null);
     } finally {
       setIsCompacting(false);
     }
-  }, [isCompacting, loadSession]);
+  }, [isCompacting, loadSession, refreshContextUsage]);
 
   const loadModels = useCallback(async (signal?: AbortSignal) => {
     const modelCwd = newSessionCwd ?? session?.cwd ?? "";
@@ -1678,6 +1707,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           });
           setCompactResult(readCompactResult(result, "manual"));
           if (await loadSession(sid, true)) promoteNewSession();
+          refreshContextUsage(sid);
           return complete({ handled: true, message: "Compacted context" });
         }
 
@@ -1728,7 +1758,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       if (commandName === "compact") setIsCompacting(false);
     }
-  }, [addNotice, ensureNewSession, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onSessionStatsPanelOpen]);
+  }, [addNotice, ensureNewSession, isCompacting, loadModels, loadSession, loadSlashCommands, loadTools, promoteNewSession, onSessionStatsPanelOpen, refreshContextUsage]);
 
   // Let AgentSession.prompt decide atomically whether to queue against the
   // current run or start a new turn if it settled while the request was in
