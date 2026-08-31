@@ -12,10 +12,17 @@ interface MarkdownBodyProps {
   className?: string;
   isStreaming?: boolean;
   cwd?: string;
+  sessionId?: string;
   onOpenFile?: (filePath: string) => void;
 }
 
-export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile }: MarkdownBodyProps) {
+function fileApiHref(filePath: string, sessionId?: string): string {
+  const searchParams = new URLSearchParams({ type: "read" });
+  if (sessionId) searchParams.set("sessionId", sessionId);
+  return `/api/files/${encodeFilePathForApi(filePath)}?${searchParams.toString()}`;
+}
+
+export function MarkdownBody({ children, className, isStreaming, cwd, sessionId, onOpenFile }: MarkdownBodyProps) {
   const normalizedMarkdown = useMemo(() => normalizeDisplayMath(children), [children]);
   // Stable renderer identities keep stateful blocks mounted across message hover updates.
   const components = useMemo<Components>(() => ({
@@ -44,11 +51,20 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
     a({ href, children, ...props }) {
       // `node` is react-markdown metadata, not a DOM attribute.
       delete props.node;
-      const filePath = onOpenFile ? resolveLocalFileHref(href, cwd) : null;
+      const filePath = resolveLocalFileHref(href, cwd);
       const openFile = onOpenFile;
-      if (!filePath || !openFile) {
+      if (!filePath) {
         return (
           <a href={href} {...props} target="_blank" rel="noopener noreferrer">
+            {children}
+          </a>
+        );
+      }
+
+      const apiHref = fileApiHref(filePath, sessionId);
+      if (!openFile) {
+        return (
+          <a href={apiHref} {...props} target="_blank" rel="noopener noreferrer">
             {children}
           </a>
         );
@@ -64,7 +80,7 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
       };
 
       return (
-        <a href={href} {...props} onClick={handleClick}>
+        <a href={apiHref} {...props} onClick={handleClick}>
           {children}
         </a>
       );
@@ -72,9 +88,7 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
     img({ src, alt, ...props }) {
       delete props.node;
       const filePath = typeof src === "string" ? resolveLocalFileHref(src, cwd) : null;
-      const imageSrc = filePath
-        ? `/api/files/${encodeFilePathForApi(filePath)}?type=read`
-        : src;
+      const imageSrc = filePath ? fileApiHref(filePath, sessionId) : src;
       // Dynamic local paths are served directly by the file API.
       return <img src={imageSrc} alt={alt ?? ""} loading="lazy" {...props} />;
     },
@@ -85,7 +99,7 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
         </div>
       );
     },
-  }), [cwd, isStreaming, onOpenFile]);
+  }), [cwd, isStreaming, onOpenFile, sessionId]);
 
   return (
     <div className={["markdown-body", className].filter(Boolean).join(" ")}>

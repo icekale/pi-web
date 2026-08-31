@@ -25,7 +25,9 @@ import {
   validateUploadFileNames,
 } from "@/lib/file-upload";
 import { parseFormDataWithinLimit, RequestBodyTooLargeError } from "@/lib/bounded-form-data";
+import { getFileName } from "@/lib/file-paths";
 import { samePath } from "@/lib/paths";
+import { readSessionHeader, resolveSessionPath } from "@/lib/session-reader";
 
 const IGNORED_NAMES = new Set([
   "node_modules", ".git", ".next", "dist", "build", "__pycache__",
@@ -77,6 +79,22 @@ function filePathFromSegments(segments: string[]): string {
 
 function parseFileRequestType(value: string): FileRequestType | null {
   return FILE_REQUEST_TYPE_SET.has(value) ? (value as FileRequestType) : null;
+}
+
+async function fallbackToSessionCwdFile(
+  requestPath: string,
+  sessionId: string | null,
+  allowedRoots: Set<string>,
+): Promise<string | null> {
+  if (!sessionId) return null;
+  const sessionFile = await resolveSessionPath(sessionId);
+  const cwd = sessionFile ? readSessionHeader(sessionFile)?.cwd : undefined;
+  if (!cwd) return null;
+  const name = getFileName(requestPath);
+  if (!name || name === "." || name === "..") return null;
+  const candidate = path.join(cwd, name);
+  if (samePath(candidate, requestPath) || !isFilePathAllowed(candidate, allowedRoots)) return null;
+  return candidate;
 }
 
 async function getUploadDirectory(segments: string[]): Promise<
@@ -418,7 +436,7 @@ export async function GET(
   try {
     const { path: segments } = await params;
     const searchParams = new URL(request.url).searchParams;
-    const filePath = filePathFromSegments(segments);
+    let filePath = filePathFromSegments(segments);
     const rawType = searchParams.get("type") ?? "list";
     const type = parseFileRequestType(rawType);
     if (!type) {
@@ -426,7 +444,13 @@ export async function GET(
     }
     const allowedRoots = await getAllowedFileRoots();
     if (!isFilePathAllowed(filePath, allowedRoots)) {
-      return Response.json({ error: "Access denied" }, { status: 403 });
+      const fallback = type === "list"
+        ? null
+        : await fallbackToSessionCwdFile(filePath, searchParams.get("sessionId"), allowedRoots);
+      if (!fallback) {
+        return Response.json({ error: "Access denied" }, { status: 403 });
+      }
+      filePath = fallback;
     }
 
     let stat: fs.Stats | undefined;

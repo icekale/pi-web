@@ -33,8 +33,21 @@ test("opens non-file markdown links in a safe new tab", () => {
 test("keeps local file markdown links in the app", () => {
   const html = renderMarkdown("[file](components/MarkdownBody.tsx)");
 
-  assert.match(html, /<a href="components\/MarkdownBody\.tsx">file<\/a>/);
+  assert.match(
+    html,
+    /<a href="\/api\/files\/home\/me\/project\/components\/MarkdownBody.tsx\?type=read">file<\/a>/,
+  );
   assert.doesNotMatch(html, /target=|rel=|\snode=/);
+});
+
+test("points absolute local file links at the files API so remote hosts do not follow site paths", () => {
+  const html = renderMarkdown("[HTML 报告](/Volumes/main/峰云汇净值表/bloomberg-report/fund_peer_comparison_20260828.html)");
+
+  assert.match(
+    html,
+    /href="\/api\/files\/Volumes\/main\/%E5%B3%B0%E4%BA%91%E6%B1%87%E5%87%80%E5%80%BC%E8%A1%A8\/bloomberg-report\/fund_peer_comparison_20260828.html\?type=read"/,
+  );
+  assert.doesNotMatch(html, /href="\/Volumes\/main/);
 });
 
 test("keeps single-tilde CJK numeric ranges literal instead of striking them", () => {

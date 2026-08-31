@@ -8,6 +8,7 @@ import { createJiti } from "jiti";
 const jiti = createJiti(import.meta.url, { alias: { "@": process.cwd() }, moduleCache: false });
 const { GET } = await jiti.import("./[...path]/route.ts");
 const { cacheSessionPath } = await jiti.import("../../../lib/session-reader.ts");
+const { allowFileRoot } = await jiti.import("../../../lib/file-access.ts");
 
 function segmentsFor(filePath) {
   return filePath.replace(/^\//, "").split("/");
@@ -39,4 +40,41 @@ test("a path mentioned in session text does not grant read access outside allowe
     { params: Promise.resolve({ path: segmentsFor(secretPath) }) },
   );
   assert.equal(response.status, 403);
+});
+
+test("falls back to the session cwd file when a linked path is outside allowed roots", async (t) => {
+  const previous = globalThis.__piSessions;
+  globalThis.__piSessions = new Map();
+  t.after(() => {
+    globalThis.__piSessions = previous;
+  });
+
+  const sessionDir = mkdtempSync(join(tmpdir(), "pi-web-ref-session-dir-"));
+  const outsideDir = mkdtempSync(join(tmpdir(), "pi-web-ref-outside-dir-"));
+  writeFileSync(join(sessionDir, "report.html"), "cwd-copy");
+  const outsidePath = join(outsideDir, "report.html");
+  writeFileSync(outsidePath, "outside-copy");
+  allowFileRoot(sessionDir);
+
+  const sessionId = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+  const sessionFile = join(sessionDir, "session.jsonl");
+  writeFileSync(
+    sessionFile,
+    `${JSON.stringify({ type: "session", version: 3, id: sessionId, timestamp: "2026-08-14T00:00:00.000Z", cwd: sessionDir })}\n`,
+  );
+  cacheSessionPath(sessionId, sessionFile);
+
+  const deniedWithoutSession = await GET(
+    new Request(`http://localhost/api/files/${segmentsFor(outsidePath).join("/")}?type=read`),
+    { params: Promise.resolve({ path: segmentsFor(outsidePath) }) },
+  );
+  assert.equal(deniedWithoutSession.status, 403);
+
+  const response = await GET(
+    new Request(`http://localhost/api/files/${segmentsFor(outsidePath).join("/")}?type=read&sessionId=${sessionId}`),
+    { params: Promise.resolve({ path: segmentsFor(outsidePath) }) },
+  );
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.content, "cwd-copy");
 });
