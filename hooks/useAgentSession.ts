@@ -109,6 +109,7 @@ type NoticeAction =
 
 export type AgentPhase =
   | { kind: "waiting_model" }
+  | { kind: "waiting_user" }
   | { kind: "running_command" }
   | { kind: "running_tools"; tools: { id: string; name: string; progress?: string }[] }
   | { kind: "stopping" }
@@ -1230,6 +1231,15 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
               setAgentPhase(null);
             }
           }
+          const usage = event.usage;
+          if (usage && typeof usage === "object") {
+            setContextUsage((prev) => {
+              const next = contextUsageFromAssistant(usage, prev?.contextWindow ?? 0);
+              if (!next) return prev;
+              if (prev && prev.tokens === next.tokens && prev.percent === next.percent) return prev;
+              return next;
+            });
+          }
         }
         // Live-follow the streaming output only when the user is already near
         // the bottom of the message list. If they scrolled up, leave them there.
@@ -1349,6 +1359,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             refreshContextUsage(sessionIdRef.current);
           }
         }
+        break;
+      case "ui_prompt_start":
+        setAgentPhase({ kind: "waiting_user" });
+        break;
+      case "ui_prompt_end":
+        setAgentPhase((prev) => prev?.kind === "waiting_user" ? { kind: "waiting_model" } : prev);
         break;
       case "extension_ui_request":
         handleExtensionUiRequest(event as ExtensionUiRequest);

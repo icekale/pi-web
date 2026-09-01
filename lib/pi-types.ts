@@ -68,6 +68,8 @@ interface ResourceLoaderLike {
   getSkills(): { skills: SkillLike[] };
 }
 
+export type UIPromptKind = "select" | "confirm" | "input" | "editor" | "custom";
+
 interface ExtensionRunnerLike {
   getRegisteredCommands(): Array<{
     invocationName: string;
@@ -79,7 +81,10 @@ interface ExtensionRunnerLike {
     handler(args: string, ctx: unknown): Promise<void>;
   } | undefined;
   createCommandContext?(): unknown;
-  emit?(event: { type: "session_shutdown"; reason: "quit" }): Promise<unknown>;
+  emit?(event:
+    | { type: "session_shutdown"; reason: "quit" }
+    | { type: "ui_prompt_start" | "ui_prompt_end"; reason: "ui_prompt"; kind: UIPromptKind; title?: string }
+  ): Promise<unknown>;
   setUIContext?(uiContext?: unknown, mode?: "tui" | "rpc" | "json" | "print"): void;
 }
 

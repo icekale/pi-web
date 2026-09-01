@@ -11,8 +11,12 @@ export const PRESET_NONE: string[] = [];
 export const PRESET_READ_ONLY: string[] = ["read", "grep", "find", "ls"];
 export const PRESET_DEFAULT: string[] = ["read", "bash", "edit", "write"];
 export const PRESET_FULL: string[] = ["bash", "read", "edit", "write", "grep", "find", "ls"];
+/** Optional SDK builtins that presets must not treat as extension tools. */
+export const OPTIONAL_BUILTIN_TOOLS = ["powershell"] as const;
+export const CODING_BUILTIN_TOOLS = [...PRESET_FULL, ...OPTIONAL_BUILTIN_TOOLS];
 
-const BUILTIN_TOOL_NAMES = new Set(PRESET_FULL);
+const BUILTIN_TOOL_NAMES = new Set(CODING_BUILTIN_TOOLS);
+const OPTIONAL_BUILTIN_TOOL_NAMES = new Set<string>(OPTIONAL_BUILTIN_TOOLS);
 
 export function isToolPreset(value: unknown): value is ToolPreset {
   return typeof value === "string" && (TOOL_PRESET_VALUES as readonly string[]).includes(value);
@@ -24,7 +28,7 @@ export function getPresetFromTools(tools: ToolEntry[]): ToolPreset {
 
   const active = activeTools
     .map((t) => t.name)
-    .filter((name) => BUILTIN_TOOL_NAMES.has(name))
+    .filter((name) => BUILTIN_TOOL_NAMES.has(name) && !OPTIONAL_BUILTIN_TOOL_NAMES.has(name))
     .sort()
     .join(",");
 

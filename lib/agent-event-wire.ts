@@ -19,8 +19,9 @@ export type ClientAssistantMessageEvent =
   | (JsonToolCallStartEvent & { id?: string; toolName?: string })
   | (JsonToolCallDeltaEvent & { id?: string; toolName?: string });
 
-export type ClientMessageUpdateEvent = Omit<JsonMessageUpdateEvent, "assistantMessageEvent"> & {
+export type ClientMessageUpdateEvent = Omit<JsonMessageUpdateEvent, "assistantMessageEvent" | "usage"> & {
   assistantMessageEvent: ClientAssistantMessageEvent;
+  usage?: JsonMessageUpdateEvent["usage"];
 };
 
 const OMITTED_EVENT_TYPES = new Set([
@@ -68,9 +69,11 @@ export function toClientAgentEvent(
       || Array.isArray(assistantMessageEvent)
     ) return null;
 
+    const usage = isObject(event.usage) ? { usage: event.usage } : {};
     if (!("partial" in assistantMessageEvent)) {
       return {
         type: "message_update",
+        ...usage,
         assistantMessageEvent,
       } as ClientMessageUpdateEvent;
     }
@@ -80,6 +83,7 @@ export function toClientAgentEvent(
     void _partial;
     return {
       type: "message_update",
+      ...usage,
       assistantMessageEvent: metadata ? { ...deltaEvent, ...metadata } : deltaEvent,
     } as ClientMessageUpdateEvent;
   }

@@ -16,7 +16,8 @@ import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import { persistExplicitStartupPreferences } from "./startup-preferences";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
-import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./pi-types";
+import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo, UIPromptKind } from "./pi-types";
+import { CODING_BUILTIN_TOOLS } from "./tool-presets";
 import type {
   ExtensionUiRequest,
   ExtensionUiResponse,
@@ -118,12 +119,12 @@ export interface RpcSessionStartOptions {
   thinkingLevel?: ThinkingLevel;
 }
 
-const CODING_TOOL_NAMES = ["read", "bash", "edit", "write", "grep", "find", "ls"];
+const CODING_TOOL_NAMES = CODING_BUILTIN_TOOLS;
 
 // Extensions require a complete Theme, while the web UI applies its own styling.
 class PlainTextTheme extends Theme {
   constructor() {
-    // ponytail: Theme 0.84.2 falls back searchMatchText→text; add keys if ctor grows
+    // ponytail: Theme 0.84.4 still falls back searchMatchText→text; add keys if ctor grows
     super(
       { thinkingXhigh: "", text: "" } as ConstructorParameters<typeof Theme>[0],
       { selectedBg: "" } as ConstructorParameters<typeof Theme>[1],
@@ -191,6 +192,7 @@ export class AgentSessionWrapper {
   private _alive = true;
   private readonly subagentRpcClient: SubagentRpcClient;
   private liveSubagentSessionIds: string[] = [];
+  private uiPromptDepth = 0;
 
   constructor(
     public readonly inner: AgentSessionLike,
@@ -1409,6 +1411,40 @@ export class AgentSessionWrapper {
     });
   }
 
+  private emitUiPromptLifecycle(
+    type: "ui_prompt_start" | "ui_prompt_end",
+    kind: UIPromptKind,
+    title?: string,
+  ): void {
+    const event = {
+      type,
+      reason: "ui_prompt" as const,
+      kind,
+      ...(title ? { title } : {}),
+    };
+    try {
+      void this.inner.extensionRunner.emit?.(event);
+    } catch {
+      // Notification-only; never block the prompt on extension handlers.
+    }
+    this.emit(event);
+  }
+
+  private async withUiPrompt<T>(
+    kind: UIPromptKind,
+    title: string | undefined,
+    work: () => Promise<T>,
+  ): Promise<T> {
+    this.uiPromptDepth += 1;
+    if (this.uiPromptDepth === 1) this.emitUiPromptLifecycle("ui_prompt_start", kind, title);
+    try {
+      return await work();
+    } finally {
+      this.uiPromptDepth = Math.max(0, this.uiPromptDepth - 1);
+      if (this.uiPromptDepth === 0) this.emitUiPromptLifecycle("ui_prompt_end", kind, title);
+    }
+  }
+
   private requestExtensionUi<T>(
     request: ExtensionUiRequestBody,
     defaultValue: T,
@@ -1454,34 +1490,34 @@ export class AgentSessionWrapper {
 
   private createExtensionUiContext(): ExtensionUiContextLike {
     return {
-      select: (title, options, opts) => this.requestExtensionUi(
+      select: (title, options, opts) => this.withUiPrompt("select", title, () => this.requestExtensionUi(
         { method: "select", title, options, ...(opts?.timeout ? { timeout: opts.timeout } : {}) },
         undefined,
         (response) => "value" in response ? response.value : undefined,
         opts?.timeout,
         opts?.signal,
-      ),
-      confirm: (title, message, opts) => this.requestExtensionUi(
+      )),
+      confirm: (title, message, opts) => this.withUiPrompt("confirm", title, () => this.requestExtensionUi(
         { method: "confirm", title, message, ...(opts?.timeout ? { timeout: opts.timeout } : {}) },
         false,
         (response) => "confirmed" in response ? response.confirmed : false,
         opts?.timeout,
         opts?.signal,
-      ),
-      input: (title, placeholder, opts) => this.requestExtensionUi(
+      )),
+      input: (title, placeholder, opts) => this.withUiPrompt("input", title, () => this.requestExtensionUi(
         { method: "input", title, ...(placeholder !== undefined ? { placeholder } : {}), ...(opts?.timeout ? { timeout: opts.timeout } : {}) },
         undefined,
         (response) => "value" in response ? response.value : undefined,
         opts?.timeout,
         opts?.signal,
-      ),
-      editor: (title, prefill, opts) => this.requestExtensionUi(
+      )),
+      editor: (title, prefill, opts) => this.withUiPrompt("editor", title, () => this.requestExtensionUi(
         { method: "editor", title, ...(prefill !== undefined ? { prefill } : {}), ...(opts?.timeout ? { timeout: opts.timeout } : {}) },
         undefined,
         (response) => "value" in response ? response.value : undefined,
         opts?.timeout,
         opts?.signal,
-      ),
+      )),
       notify: (message, type) => {
         this.emit({
           type: "extension_ui_request",
@@ -1552,7 +1588,7 @@ export class AgentSessionWrapper {
           title,
         } as ExtensionUiRequest as AgentEvent);
       },
-      custom: <T = unknown>(factory: unknown, options?: unknown) => this.requestExtensionCustomUi<T>(factory, options),
+      custom: <T = unknown>(factory: unknown, options?: unknown) => this.withUiPrompt("custom", undefined, () => this.requestExtensionCustomUi<T>(factory, options)),
       pasteToEditor: (text) => {
         this.emit({
           type: "extension_ui_request",

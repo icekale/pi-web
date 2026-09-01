@@ -152,6 +152,13 @@ test("context usage refreshes from assistant completions and live agent state", 
   assert.match(loadSource, /GET \/api\/agent\/\[id\]/);
   assert.match(loadSource, /fetch\(`\/api\/agent\/\$\{encodeURIComponent\(sid\)\}`\)/);
   assert.match(messageEndSource, /contextUsageFromAssistant\(usage, prev\?\.contextWindow \?\? 0, completed\.stopReason\)/);
+  const messageUpdateSource = source.slice(
+    source.indexOf('case "message_update"'),
+    source.indexOf('case "message_end"'),
+  );
+  assert.match(messageUpdateSource, /contextUsageFromAssistant\(usage, prev\?\.contextWindow \?\? 0\)/);
+  assert.match(source, /case "ui_prompt_start"/);
+  assert.match(source, /kind: "waiting_user"/);
   assert.ok(
     agentEndSource.indexOf("d.state?.contextUsage") < agentEndSource.indexOf("promptRunIdRef.current !== finishingRunId"),
     "agent_end must apply context usage before the run-generation gate",

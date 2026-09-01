@@ -79,6 +79,7 @@ function phaseLabel(phase: AgentPhase, t: (key: string, params?: Record<string, 
     return t("chat.runningToolsMore", { names: names.slice(0, 2).join(", "), count: names.length - 2 });
   }
   if (phase?.kind === "waiting_model") return t("chat.waitingModel");
+  if (phase?.kind === "waiting_user") return t("chat.waitingUser");
   if (phase?.kind === "running_command") return t("chat.runningCommand");
   if (phase?.kind === "stopping") return t("chat.stopping");
   return null;
