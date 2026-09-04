@@ -28,6 +28,7 @@ import {
   CHAT_SCROLL_TAIL_TOLERANCE,
   getLiveFollowAttached,
 } from "@/lib/chat-lazy-load";
+import { SESSION_MESSAGE_WINDOW } from "@/lib/session-window";
 import {
   INITIAL_STREAMING_STATE,
   streamReducer,
@@ -48,6 +49,7 @@ export interface SessionData {
     model: { provider: string; modelId: string } | null;
     goal?: import("@/lib/goal-panel").GoalPanelModel | null;
   };
+  hasMore?: boolean;
 }
 
 interface AgentEvent {
@@ -284,6 +286,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [activeLeafId, setActiveLeafId] = useState<string | null>(null);
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [entryIds, setEntryIds] = useState<string[]>([]);
+  const [historyHasMore, setHistoryHasMore] = useState(false);
   const [streamState, dispatch] = useReducer(streamReducer, INITIAL_STREAMING_STATE);
   const [agentRunning, setAgentRunning] = useState(false);
   const [bashRunning, setBashRunning] = useState(false);
@@ -325,6 +328,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const eventStreamGraceGenerationRef = useRef(0);
   const eventStreamGraceActiveRef = useRef(false);
   const sessionIdRef = useRef<string | null>(session?.id ?? null);
+  const entryIdsRef = useRef<string[]>([]);
+  const historyHasMoreRef = useRef(false);
+  const loadingOlderRef = useRef(false);
+  entryIdsRef.current = entryIds;
+  historyHasMoreRef.current = historyHasMore;
   const sessionPropIdRef = useRef<string | null>(session?.id ?? null);
   const sessionRunningRef = useRef(Boolean(sessionRunning));
   const agentRunningRef = useRef(false);
@@ -490,13 +498,20 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     let messagesLoaded = false;
     try {
       if (showLoading) setLoading(true);
-      const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1", deferToolResults: "1" });
+      const params = new URLSearchParams({
+        deferThinking: "1",
+        deferMedia: "1",
+        deferToolResults: "1",
+        limit: String(SESSION_MESSAGE_WINDOW),
+      });
       const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}?${params}`);
       if (res.status === 404) {
         if (showLoading) {
           setData(null);
           setActiveLeafId(null);
           setMessages([]);
+          setEntryIds([]);
+          setHistoryHasMore(false);
           setError(null);
         }
         return null;
@@ -510,6 +525,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setActiveLeafId(d.leafId);
       setMessages(persistedMessages);
       setEntryIds(d.context.entryIds ?? []);
+      setHistoryHasMore(Boolean(d.hasMore));
       setCurrentModelOverride((current) => modelSwitchPendingRef.current ? current : null);
       setError(null);
       if (d.context.thinkingLevel && d.context.thinkingLevel !== "off") {
@@ -566,16 +582,57 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const loadContext = useCallback(async (sid: string, leafId: string | null) => {
     try {
-      const params = new URLSearchParams({ deferThinking: "1", deferMedia: "1", deferToolResults: "1" });
+      const params = new URLSearchParams({
+        deferThinking: "1",
+        deferMedia: "1",
+        deferToolResults: "1",
+        limit: String(SESSION_MESSAGE_WINDOW),
+      });
       if (leafId) params.set("leafId", leafId);
       const url = `/api/sessions/${encodeURIComponent(sid)}/context?${params}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const d = await res.json() as { context: { messages: AgentMessage[]; entryIds: string[] } };
+      const d = await res.json() as { context: { messages: AgentMessage[]; entryIds: string[] }; hasMore?: boolean };
       setMessages(d.context.messages);
       setEntryIds(d.context.entryIds ?? []);
+      setHistoryHasMore(Boolean(d.hasMore));
     } catch (e) {
       console.error("Failed to load context:", e);
+    }
+  }, []);
+
+  const loadOlderHistory = useCallback(async () => {
+    const sid = sessionIdRef.current;
+    const before = entryIdsRef.current[0];
+    if (!sid || !before || !historyHasMoreRef.current || loadingOlderRef.current) return 0;
+    loadingOlderRef.current = true;
+    try {
+      const params = new URLSearchParams({
+        deferThinking: "1",
+        deferMedia: "1",
+        deferToolResults: "1",
+        limit: String(SESSION_MESSAGE_WINDOW),
+        before,
+      });
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}?${params}`);
+      if (!res.ok) return 0;
+      const d = await res.json() as SessionData;
+      if (sessionIdRef.current !== sid || entryIdsRef.current[0] !== before) return 0;
+      const olderMessages = d.context.messages ?? [];
+      const olderIds = d.context.entryIds ?? [];
+      if (olderIds.length === 0) {
+        setHistoryHasMore(false);
+        return 0;
+      }
+      setMessages((current) => [...olderMessages, ...current]);
+      setEntryIds((current) => [...olderIds, ...current]);
+      setHistoryHasMore(Boolean(d.hasMore));
+      return olderIds.length;
+    } catch (e) {
+      console.error("Failed to load older history:", e);
+      return 0;
+    } finally {
+      loadingOlderRef.current = false;
     }
   }, []);
 
@@ -2131,7 +2188,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   return {
     // State
-    data, loading, error, activeLeafId, messages, entryIds, streamState,
+    data, loading, error, activeLeafId, messages, entryIds, historyHasMore, streamState,
     agentRunning, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, modelSwitching, sessionStats,
@@ -2152,7 +2209,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     handleRecallQueue,
     handleQueueRemoveItem, handleQueueEditItem, handleQueueSteerItem, handleSteerAllQueued,
     handleBuiltinSlashCommand,
-    handleToolPresetChange, handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages,
+    handleToolPresetChange, handleThinkingLevelChange, loadTools, loadSlashCommands, loadOlderHistory, setActiveLeafId, setData, setMessages,
     scrollToBottom, scrollUserMsgToTop,
     dispatch, setAgentRunning, setForkingEntryId,
     bashRunning, pendingBash,

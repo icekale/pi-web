@@ -30,6 +30,7 @@ import {
   restoreScrollTop,
   VISIBLE_PAGE_SIZE,
 } from "@/lib/chat-lazy-load";
+import { SESSION_MESSAGE_WINDOW } from "@/lib/session-window";
 
 const ChatMinimap = lazy(() => import("./ChatMinimap").then((module) => ({
   default: module.ChatMinimap,
@@ -301,7 +302,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   }, [chatInputRef]);
 
   const {
-    data, loading, error, messages, entryIds, streamState,
+    data, loading, error, messages, entryIds, historyHasMore, streamState,
     agentRunning, bashRunning, pendingBash, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, modelSwitching, sessionStats,
@@ -318,7 +319,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     handleClearCompactFeedback,
     handleQueueRemoveItem, handleQueueEditItem, handleQueueSteerItem, handleSteerAllQueued,
     handleBuiltinSlashCommand,
-    handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands, scrollToBottom, scrollUserMsgToTop,
+    handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands, loadOlderHistory, scrollToBottom, scrollUserMsgToTop,
   } = useAgentSession({
     session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked,
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
@@ -372,6 +373,10 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   const sentinelRef = useRef<HTMLDivElement>(null);
   const prevScrollDistanceRef = useRef<number | null>(null);
 
+  useEffect(() => {
+    setVisibleCount(VISIBLE_PAGE_SIZE);
+  }, [sessionKey]);
+
   // IntersectionObserver on the sentinel div at the top of the message list.
   // When it becomes visible, load the next page of older messages.
   useEffect(() => {
@@ -380,17 +385,23 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     if (!sentinel || !container) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0]?.isIntersecting) {
-          // Save distance from top before prepending to restore scroll later
-          prevScrollDistanceRef.current = captureScrollDistance(container.scrollHeight, container.scrollTop);
+        if (!entries[0]?.isIntersecting) return;
+        prevScrollDistanceRef.current = captureScrollDistance(container.scrollHeight, container.scrollTop);
+        const renderedHasMore = getVisibleRenderWindow(messages.length, visibleCount).hasMore;
+        if (renderedHasMore) {
           setVisibleCount((prev) => getNextVisibleCount(prev));
+          return;
         }
+        if (!historyHasMore) return;
+        void loadOlderHistory().then((added) => {
+          if (added > 0) setVisibleCount((prev) => prev + added);
+        });
       },
       { root: container, threshold: 0 }
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [visibleCount, messages.length, scrollContainerRef]);
+  }, [visibleCount, messages.length, historyHasMore, loadOlderHistory, scrollContainerRef]);
 
   // After visibleCount increases (more messages prepended), restore the
   // scroll position so the viewport doesn't jump.
@@ -973,11 +984,12 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
                 idx = endIdx;
               }
               const { startIndex, hasMore } = getVisibleRenderWindow(rendered.length, visibleCount);
+              const showSentinel = hasMore || historyHasMore;
               return (
                 <>
-                  {hasMore && (
+                  {showSentinel && (
                      <div ref={sentinelRef} className="py-3 text-center text-xs text-text-muted">
-                       {t("chat.loadEarlier", { count: startIndex })}
+                       {t("chat.loadEarlier", { count: hasMore ? startIndex : SESSION_MESSAGE_WINDOW })}
                     </div>
                   )}
                   {rendered.slice(startIndex)}

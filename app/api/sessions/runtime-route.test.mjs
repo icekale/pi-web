@@ -27,14 +27,16 @@ test("session listing merges live registry snapshots and honors force refresh", 
   assert.match(listRoute, /"Cache-Control": "no-store"/);
 });
 
-test("session reads use the live SessionManager before requiring a JSONL path", () => {
+test("idle session reads window jsonl without SessionManager.open", () => {
   for (const source of [detailRoute, contextRoute]) {
     const liveLookup = source.indexOf("getRpcSession(id)");
     const pathLookup = source.indexOf("resolveSessionPath(id)");
     assert.ok(liveLookup >= 0);
     assert.ok(pathLookup > liveLookup);
-    assert.match(source, /liveRpc\?\.inner\.sessionManager \?\? SessionManager\.open/);
+    assert.match(source, /readSessionWindow/);
   }
+  assert.doesNotMatch(detailRoute, /SessionManager\.open\(resolvedPath/);
+  assert.doesNotMatch(contextRoute, /SessionManager\.open/);
 });
 
 test("live agent state is available before the session file is persisted", () => {
@@ -326,4 +328,47 @@ test("session listing caps firstMessage without mutating the source", async () =
   assert.equal(compact.firstMessage.length, 512);
   assert.equal(source.firstMessage.length, 2_000);
   assert.equal(compactSessionForList({ ...source, firstMessage: "short" }).firstMessage, "short");
+});
+
+test("idle session detail windows messages and pages with before", async (t) => {
+  const previousRegistry = globalThis.__piSessions;
+  const dir = mkdtempSync(join(tmpdir(), "pi-web-window-route-"));
+  const id = "window-route-test";
+  const path = join(dir, `${id}.jsonl`);
+  const lines = [{
+    type: "session", version: 3, id, timestamp: "2026-08-14T00:00:00.000Z", cwd: dir,
+  }];
+  let parent = null;
+  for (let i = 1; i <= 12; i++) {
+    const entryId = `m${i}`;
+    lines.push({
+      type: "message",
+      id: entryId,
+      parentId: parent,
+      timestamp: `2026-08-14T00:00:${String(i).padStart(2, "0")}.000Z`,
+      message: { role: "user", content: `msg ${i}` },
+    });
+    parent = entryId;
+  }
+  writeFileSync(path, `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`);
+  cacheSessionPath(id, path);
+  globalThis.__piSessions = new Map();
+  t.after(() => {
+    globalThis.__piSessions = previousRegistry;
+  });
+
+  const routeContext = { params: Promise.resolve({ id }) };
+  const first = await (await getSessionDetail(
+    new Request(`http://localhost/api/sessions/${id}?limit=4`),
+    routeContext,
+  )).json();
+  assert.deepEqual(first.context.messages.map((message) => message.content), ["msg 9", "msg 10", "msg 11", "msg 12"]);
+  assert.equal(first.hasMore, true);
+
+  const older = await (await getSessionDetail(
+    new Request(`http://localhost/api/sessions/${id}?limit=4&before=${first.context.entryIds[0]}`),
+    routeContext,
+  )).json();
+  assert.deepEqual(older.context.messages.map((message) => message.content), ["msg 5", "msg 6", "msg 7", "msg 8"]);
+  assert.equal(older.hasMore, true);
 });

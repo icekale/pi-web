@@ -7,11 +7,14 @@ import {
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync, writeFileSync } from "fs";
 import type { Stats } from "fs";
 import { basename, dirname, join, normalize as normalizePath } from "path";
-import type { AgentMessage, SessionEntry, SessionHeader, SessionInfo, SessionContext } from "./types";
+import type { AgentMessage, SessionEntry, SessionHeader, SessionInfo, SessionContext, SessionTreeNode } from "./types";
 import type { SessionEntry as PiSessionEntry } from "@earendil-works/pi-coding-agent";
 import { extractGoalFromEntries } from "./goal-panel";
 import { normalizeToolCalls } from "./normalize";
 import { sessionPathKey } from "./paths";
+import { projectTreeForResponse } from "./project-tree";
+import { SESSION_MESSAGE_WINDOW, SESSION_WINDOW_INITIAL_BYTES, sliceSessionContext } from "./session-window";
+import { computeSessionTotalActiveMs } from "./session-timing";
 import { resolveProject, type ProjectInfo } from "./worktree";
 
 export { getAgentDir };
@@ -738,5 +741,165 @@ function entryToUiMessage(
       };
     default:
       return null;
+  }
+}
+
+export function readCachedSessionInfo(filePath: string): SessionInfo | null {
+  const index = readSessionIndex();
+  const info = sessionInfoFromFile(filePath, index);
+  if (index.dirty) writeSessionIndex(index);
+  return info;
+}
+
+export type SessionWindow = {
+  context: SessionContext;
+  hasMore: boolean;
+  leafId: string | null;
+  tree: SessionTreeNode[];
+  totalActiveMs: number;
+};
+
+function parseJsonlRange(filePath: string, fileSize: number, start: number): SessionEntry[] {
+  const fd = openSync(filePath, "r");
+  try {
+    const buf = Buffer.allocUnsafe(fileSize - start);
+    const n = readSync(fd, buf, 0, buf.length, start);
+    let text = buf.subarray(0, n).toString("utf8");
+    if (start > 0) {
+      const nl = text.indexOf("\n");
+      if (nl === -1) return [];
+      text = text.slice(nl + 1);
+    }
+    const entries: SessionEntry[] = [];
+    for (const raw of text.split("\n")) {
+      const line = raw.trim();
+      if (!line) continue;
+      try {
+        const parsed = JSON.parse(line) as { type?: string; id?: string };
+        if (parsed?.type && parsed.type !== "session" && typeof parsed.id === "string") {
+          entries.push(parsed as SessionEntry);
+        }
+      } catch {
+        // skip malformed lines
+      }
+    }
+    return entries;
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function treeFromEntries(entries: SessionEntry[]): SessionTreeNode[] {
+  const nodeMap = new Map<string, SessionTreeNode>();
+  const roots: SessionTreeNode[] = [];
+  for (const entry of entries) {
+    nodeMap.set(entry.id, { entry, children: [] });
+  }
+  for (const entry of entries) {
+    const node = nodeMap.get(entry.id)!;
+    const parent = entry.parentId ? nodeMap.get(entry.parentId) : undefined;
+    if (parent) parent.children.push(node);
+    else roots.push(node);
+  }
+  return projectTreeForResponse(roots);
+}
+
+const EMPTY_CONTEXT: SessionContext = {
+  messages: [],
+  entryIds: [],
+  thinkingLevel: "off",
+  model: null,
+};
+
+function windowFromEntries(
+  entries: SessionEntry[],
+  options: {
+    limit: number;
+    before?: string;
+    leafId?: string | null;
+    reachedStart: boolean;
+    deferThinking?: boolean;
+    deferToolResultImages?: boolean;
+    deferToolResults?: boolean;
+  },
+): { ready: boolean; context: SessionContext; hasMore: boolean; leafId: string | null } {
+  const byId = new Map(entries.map((entry) => [entry.id, entry]));
+  if (options.before && !byId.has(options.before)) {
+    return { ready: false, context: EMPTY_CONTEXT, hasMore: true, leafId: null };
+  }
+  if (options.leafId && !byId.has(options.leafId) && !options.reachedStart) {
+    return { ready: false, context: EMPTY_CONTEXT, hasMore: true, leafId: options.leafId };
+  }
+  const leafId = options.leafId && byId.has(options.leafId)
+    ? options.leafId
+    : (entries.at(-1)?.id ?? null);
+
+  let current = leafId ? byId.get(leafId) : undefined;
+  let compactionFirstKept: string | undefined;
+  while (current) {
+    if (current.type === "compaction" && typeof current.firstKeptEntryId === "string") {
+      compactionFirstKept = current.firstKeptEntryId;
+    }
+    if (!current.parentId) break;
+    const parent = byId.get(current.parentId);
+    if (!parent) break;
+    current = parent;
+  }
+  if (compactionFirstKept && !byId.has(compactionFirstKept) && !options.reachedStart) {
+    return { ready: false, context: EMPTY_CONTEXT, hasMore: true, leafId };
+  }
+
+  const context = buildSessionContext(entries, leafId, {
+    deferThinking: options.deferThinking,
+    deferToolResultImages: options.deferToolResultImages,
+    deferToolResults: options.deferToolResults,
+  });
+  const sliced = sliceSessionContext(context, { limit: options.limit, before: options.before });
+  const firstId = sliced.context.entryIds[0];
+  const firstEntry = firstId ? byId.get(firstId) : undefined;
+  const hasMore = sliced.hasMore
+    || (firstEntry?.type !== "compaction" && firstEntry?.parentId != null && !options.reachedStart);
+  const ready = options.reachedStart || sliced.context.messages.length >= options.limit;
+  return { ready, context: sliced.context, hasMore, leafId };
+}
+
+export function readSessionWindow(
+  filePath: string,
+  options: {
+    limit?: number;
+    before?: string;
+    leafId?: string | null;
+    deferThinking?: boolean;
+    deferToolResultImages?: boolean;
+    deferToolResults?: boolean;
+  } = {},
+): SessionWindow {
+  const st = statSync(filePath);
+  const limit = options.limit ?? SESSION_MESSAGE_WINDOW;
+  let budget = Math.min(SESSION_WINDOW_INITIAL_BYTES, st.size);
+  // ponytail: expanding tail re-read; recent 80 msgs usually fit in 512KB
+  while (true) {
+    const start = Math.max(0, st.size - budget);
+    const entries = parseJsonlRange(filePath, st.size, start);
+    const reachedStart = start === 0;
+    const result = windowFromEntries(entries, {
+      limit,
+      before: options.before,
+      leafId: options.leafId,
+      reachedStart,
+      deferThinking: options.deferThinking,
+      deferToolResultImages: options.deferToolResultImages,
+      deferToolResults: options.deferToolResults,
+    });
+    if (result.ready || reachedStart) {
+      return {
+        context: result.context,
+        hasMore: result.hasMore,
+        leafId: result.leafId,
+        tree: treeFromEntries(entries),
+        totalActiveMs: computeSessionTotalActiveMs(entries),
+      };
+    }
+    budget = Math.min(st.size, Math.max(budget * 2, budget + SESSION_WINDOW_INITIAL_BYTES));
   }
 }

@@ -166,6 +166,10 @@ test("context usage refreshes from assistant completions and live agent state", 
   assert.match(historyRefreshSource, /loadSession\(session\.id, false, false\)/);
   assert.match(source, /loadSession\(session\.id, true, !opts\.readOnlyHistory\)/);
   assert.match(source, /from "@\/lib\/conversation-context"/);
+  assert.match(loadSource, /limit: String\(SESSION_MESSAGE_WINDOW\)/);
+  assert.match(source, /const loadOlderHistory = useCallback/);
+  assert.match(chatWindowSource, /loadOlderHistory\(\)\.then/);
+  assert.match(chatWindowSource, /historyHasMore/);
 });
 
 test("new-session promotion rekeys drafts before publishing the real session", () => {

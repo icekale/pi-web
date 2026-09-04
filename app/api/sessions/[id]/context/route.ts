@@ -1,6 +1,6 @@
-import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { resolveSessionPath, buildSessionContext } from "@/lib/session-reader";
+import { resolveSessionPath, buildSessionContext, readSessionWindow } from "@/lib/session-reader";
 import { getRpcSession } from "@/lib/rpc-manager";
+import { parseSessionWindowParams, sliceSessionContext } from "@/lib/session-window";
 
 export async function GET(
   req: Request,
@@ -12,6 +12,8 @@ export async function GET(
   const deferThinking = url.searchParams.has("deferThinking");
   const deferToolResultImages = url.searchParams.has("deferMedia");
   const deferToolResults = url.searchParams.has("deferToolResults");
+  const { limit, before } = parseSessionWindowParams(url.searchParams);
+  const defer = { deferThinking, deferToolResultImages, deferToolResults };
 
   try {
     const rpc = getRpcSession(id);
@@ -21,14 +23,14 @@ export async function GET(
       return Response.json({ error: "Session not found" }, { status: 404 });
     }
 
-    const sm = liveRpc?.inner.sessionManager ?? SessionManager.open(filePath!);
-    const context = buildSessionContext(sm.getEntries() as never, leafId, {
-      deferThinking,
-      deferToolResultImages,
-      deferToolResults,
-    });
+    if (!liveRpc) {
+      const window = readSessionWindow(filePath!, { limit, before, leafId, ...defer });
+      return Response.json({ context: window.context, hasMore: window.hasMore });
+    }
 
-    return Response.json({ context });
+    const full = buildSessionContext(liveRpc.inner.sessionManager.getEntries() as never, leafId, defer);
+    const { context, hasMore } = sliceSessionContext(full, { limit, before });
+    return Response.json({ context, hasMore });
   } catch (error) {
     return Response.json({ error: String(error) }, { status: 500 });
   }

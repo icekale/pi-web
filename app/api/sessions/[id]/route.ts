@@ -7,13 +7,16 @@ import {
   invalidateSessionPathCache,
   invalidateSessionListCache,
   buildSessionContext,
+  readCachedSessionInfo,
   readSessionHeader,
+  readSessionWindow,
 } from "@/lib/session-reader";
 import { sessionPathKey } from "@/lib/paths";
 import { isReservedSubagentSessionName } from "@/lib/session-relations";
 import { getRpcSession } from "@/lib/rpc-manager";
 import { projectTreeForResponse } from "@/lib/project-tree";
 import { computeSessionTotalActiveMs } from "@/lib/session-timing";
+import { parseSessionWindowParams, sliceSessionContext } from "@/lib/session-window";
 
 export async function GET(
   req: Request,
@@ -28,18 +31,53 @@ export async function GET(
       return Response.json({ error: "Session not found" }, { status: 404 });
     }
 
-    const sm = liveRpc?.inner.sessionManager ?? SessionManager.open(resolvedPath!);
-    const filePath = liveRpc?.sessionFile || sm.getSessionFile() || resolvedPath || "";
-    const entries = sm.getEntries();
-    const leafId = sm.getLeafId();
-    const tree = projectTreeForResponse(sm.getTree());
     const searchParams = new URL(req.url).searchParams;
     const deferThinking = searchParams.has("deferThinking");
     const deferToolResultImages = searchParams.has("deferMedia");
     const deferToolResults = searchParams.has("deferToolResults");
-    const context = buildSessionContext(entries as never, leafId, { deferThinking, deferToolResultImages, deferToolResults });
-    const totalActiveMs = computeSessionTotalActiveMs(entries);
+    const { limit, before } = parseSessionWindowParams(searchParams);
+    const defer = { deferThinking, deferToolResultImages, deferToolResults };
 
+    if (!liveRpc) {
+      const filePath = resolvedPath!;
+      const window = readSessionWindow(filePath, { limit, before, ...defer });
+      const header = readSessionHeader(filePath);
+      const listInfo = readCachedSessionInfo(filePath);
+      let modified = header?.timestamp ?? new Date().toISOString();
+      try { modified = statSync(filePath).mtime.toISOString(); } catch { /* use header timestamp */ }
+      const parentSessionId = header?.parentSession
+        ? await resolveSessionIdByPath(header.parentSession)
+        : undefined;
+      const info = header ? {
+        path: filePath,
+        id: header.id,
+        cwd: header.cwd ?? "",
+        name: listInfo?.name,
+        created: header.timestamp,
+        modified: listInfo?.modified ?? modified,
+        messageCount: listInfo?.messageCount || window.context.messages.length,
+        firstMessage: listInfo?.firstMessage ?? "(no messages)",
+        parentSessionId,
+        transient: false,
+      } : null;
+      return Response.json({
+        sessionId: id,
+        filePath,
+        info,
+        leafId: window.leafId,
+        tree: window.tree,
+        context: window.context,
+        totalActiveMs: window.totalActiveMs,
+        hasMore: window.hasMore,
+      });
+    }
+
+    const sm = liveRpc.inner.sessionManager;
+    const filePath = liveRpc.sessionFile || sm.getSessionFile() || "";
+    const entries = sm.getEntries();
+    const leafId = sm.getLeafId();
+    const full = buildSessionContext(entries as never, leafId, defer);
+    const { context, hasMore } = sliceSessionContext(full, { limit, before });
     const header = sm.getHeader();
     let modified = header?.timestamp ?? new Date().toISOString();
     try { modified = statSync(filePath).mtime.toISOString(); } catch { /* use header timestamp */ }
@@ -53,10 +91,10 @@ export async function GET(
       name: sm.getSessionName(),
       created: header.timestamp,
       modified,
-      messageCount: context.messages.length,
-      firstMessage: context.messages.find((m) => m.role === "user")
+      messageCount: full.messages.length,
+      firstMessage: full.messages.find((m) => m.role === "user")
         ? (() => {
-            const msg = context.messages.find((m) => m.role === "user")!;
+            const msg = full.messages.find((m) => m.role === "user")!;
             const c = (msg as { content: unknown }).content;
             return typeof c === "string" ? c : (Array.isArray(c) ? (c.find((b: { type: string }) => b.type === "text") as { text: string } | undefined)?.text ?? "" : "") || "(no messages)";
           })()
@@ -70,9 +108,10 @@ export async function GET(
       filePath,
       info,
       leafId,
-      tree,
+      tree: projectTreeForResponse(sm.getTree()),
       context,
-      totalActiveMs,
+      totalActiveMs: computeSessionTotalActiveMs(entries),
+      hasMore,
     });
   } catch (error) {
     return Response.json({ error: String(error) }, { status: 500 });
