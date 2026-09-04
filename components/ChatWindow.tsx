@@ -372,9 +372,11 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   const [visibleCount, setVisibleCount] = useState(VISIBLE_PAGE_SIZE);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const prevScrollDistanceRef = useRef<number | null>(null);
+  const sentinelArmedRef = useRef(true);
 
   useEffect(() => {
     setVisibleCount(VISIBLE_PAGE_SIZE);
+    sentinelArmedRef.current = true;
   }, [sessionKey]);
 
   // IntersectionObserver on the sentinel div at the top of the message list.
@@ -385,14 +387,18 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     if (!sentinel || !container) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (!entries[0]?.isIntersecting) return;
+        if (!entries[0]?.isIntersecting) {
+          sentinelArmedRef.current = true;
+          return;
+        }
         prevScrollDistanceRef.current = captureScrollDistance(container.scrollHeight, container.scrollTop);
         const renderedHasMore = getVisibleRenderWindow(messages.length, visibleCount).hasMore;
         if (renderedHasMore) {
           setVisibleCount((prev) => getNextVisibleCount(prev));
           return;
         }
-        if (!historyHasMore) return;
+        if (!historyHasMore || !sentinelArmedRef.current) return;
+        sentinelArmedRef.current = false;
         void loadOlderHistory().then((added) => {
           if (added > 0) setVisibleCount((prev) => prev + added);
         });

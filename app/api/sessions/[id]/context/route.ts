@@ -8,11 +8,10 @@ export async function GET(
 ) {
   const { id } = await params;
   const url = new URL(req.url);
-  const leafId = url.searchParams.get("leafId") ?? undefined;
   const deferThinking = url.searchParams.has("deferThinking");
   const deferToolResultImages = url.searchParams.has("deferMedia");
   const deferToolResults = url.searchParams.has("deferToolResults");
-  const { limit, before } = parseSessionWindowParams(url.searchParams);
+  const { limit, before, leafId } = parseSessionWindowParams(url.searchParams);
   const defer = { deferThinking, deferToolResultImages, deferToolResults };
 
   try {

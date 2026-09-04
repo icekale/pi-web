@@ -1,4 +1,4 @@
-import { getSessionEntries, resolveSessionPath } from "@/lib/session-reader";
+import { findSessionEntry, resolveSessionPath } from "@/lib/session-reader";
 
 export async function GET(
   req: Request,
@@ -15,8 +15,7 @@ export async function GET(
     const filePath = await resolveSessionPath(id);
     if (!filePath) return Response.json({ error: "Session not found" }, { status: 404 });
 
-    // SessionManager-backed parsing preserves the SDK's malformed-line tolerance.
-    const entry = getSessionEntries(filePath).find((candidate) => candidate.id === entryId);
+    const entry = findSessionEntry(filePath, entryId);
     if (!entry || entry.type !== "message" || entry.message.role !== "assistant") {
       return Response.json({ error: "Assistant message not found" }, { status: 404 });
     }

@@ -37,6 +37,8 @@ test("idle session reads window jsonl without SessionManager.open", () => {
   }
   assert.doesNotMatch(detailRoute, /SessionManager\.open\(resolvedPath/);
   assert.doesNotMatch(contextRoute, /SessionManager\.open/);
+  assert.match(detailRoute, /leafId: leafIdParam/);
+  assert.doesNotMatch(detailRoute, /listInfo\?\.messageCount \|\|/);
 });
 
 test("live agent state is available before the session file is persisted", () => {
@@ -371,4 +373,25 @@ test("idle session detail windows messages and pages with before", async (t) => 
   )).json();
   assert.deepEqual(older.context.messages.map((message) => message.content), ["msg 5", "msg 6", "msg 7", "msg 8"]);
   assert.equal(older.hasMore, true);
+  assert.equal(first.info.messageCount, 12);
+
+  const sidePath = join(dir, `${id}-side.jsonl`);
+  writeFileSync(sidePath, `${JSON.stringify({
+    type: "session", version: 3, id: `${id}-side`, timestamp: "2026-08-14T00:00:00.000Z", cwd: dir,
+  })}\n${JSON.stringify({
+    type: "message", id: "root", parentId: null, timestamp: "2026-08-14T00:00:01.000Z",
+    message: { role: "user", content: "root" },
+  })}\n${JSON.stringify({
+    type: "message", id: "side", parentId: "root", timestamp: "2026-08-14T00:00:02.000Z",
+    message: { role: "user", content: "side branch" },
+  })}\n${JSON.stringify({
+    type: "message", id: "main", parentId: "root", timestamp: "2026-08-14T00:00:03.000Z",
+    message: { role: "user", content: "main branch" },
+  })}\n`);
+  cacheSessionPath(`${id}-side`, sidePath);
+  const branched = await (await getSessionDetail(
+    new Request(`http://localhost/api/sessions/${id}-side?limit=10&leafId=side`),
+    { params: Promise.resolve({ id: `${id}-side` }) },
+  )).json();
+  assert.deepEqual(branched.context.messages.map((message) => message.content), ["root", "side branch"]);
 });

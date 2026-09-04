@@ -35,12 +35,12 @@ export async function GET(
     const deferThinking = searchParams.has("deferThinking");
     const deferToolResultImages = searchParams.has("deferMedia");
     const deferToolResults = searchParams.has("deferToolResults");
-    const { limit, before } = parseSessionWindowParams(searchParams);
+    const { limit, before, leafId: leafIdParam } = parseSessionWindowParams(searchParams);
     const defer = { deferThinking, deferToolResultImages, deferToolResults };
 
     if (!liveRpc) {
       const filePath = resolvedPath!;
-      const window = readSessionWindow(filePath, { limit, before, ...defer });
+      const window = readSessionWindow(filePath, { limit, before, leafId: leafIdParam, ...defer });
       const header = readSessionHeader(filePath);
       const listInfo = readCachedSessionInfo(filePath);
       let modified = header?.timestamp ?? new Date().toISOString();
@@ -55,7 +55,9 @@ export async function GET(
         name: listInfo?.name,
         created: header.timestamp,
         modified: listInfo?.modified ?? modified,
-        messageCount: listInfo?.messageCount || window.context.messages.length,
+        messageCount: listInfo?.messageCount != null
+          ? listInfo.messageCount
+          : (window.hasMore ? null : window.context.messages.length),
         firstMessage: listInfo?.firstMessage ?? "(no messages)",
         parentSessionId,
         transient: false,
@@ -75,7 +77,7 @@ export async function GET(
     const sm = liveRpc.inner.sessionManager;
     const filePath = liveRpc.sessionFile || sm.getSessionFile() || "";
     const entries = sm.getEntries();
-    const leafId = sm.getLeafId();
+    const leafId = leafIdParam || sm.getLeafId();
     const full = buildSessionContext(entries as never, leafId, defer);
     const { context, hasMore } = sliceSessionContext(full, { limit, before });
     const header = sm.getHeader();

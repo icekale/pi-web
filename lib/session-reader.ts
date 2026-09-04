@@ -51,7 +51,7 @@ export function mergeSessionLists(
   return [...byId.values()].sort((a, b) => b.modified.localeCompare(a.modified));
 }
 
-const INDEX_VERSION = 1;
+const INDEX_VERSION = 2;
 const START_SCAN_MAX_BYTES = 1024 * 1024;
 const TAIL_SCAN_MAX_BYTES = 256 * 1024;
 const FIRST_MESSAGE_MAX_CHARS = 200;
@@ -65,7 +65,7 @@ type SessionFileRecord = {
   created: string;
   modified: string;
   firstMessage: string;
-  messageCount: number;
+  messageCount: number | null;
   parentSession?: string;
 };
 
@@ -218,7 +218,7 @@ function scanSessionFileSync(filePath: string, st: Stats): SessionFileRecord | n
       countMessages: isFull,
     });
     if (!state.header?.id) return null;
-    if (!state.name && !isFull) {
+    if (!isFull) {
       const tailLen = Math.min(TAIL_SCAN_MAX_BYTES, st.size);
       const tailBuf = Buffer.allocUnsafe(tailLen);
       readSync(fd, tailBuf, 0, tailLen, st.size - tailLen);
@@ -239,7 +239,7 @@ function scanSessionFileSync(filePath: string, st: Stats): SessionFileRecord | n
       created,
       modified: st.mtime.toISOString(),
       firstMessage: state.firstMessage || "(no messages)",
-      messageCount: isFull ? state.messageCount : 0,
+      messageCount: isFull ? state.messageCount : null,
       ...(parentSession ? { parentSession } : {}),
     };
   } finally {
@@ -759,17 +759,32 @@ export type SessionWindow = {
   totalActiveMs: number;
 };
 
-function parseJsonlRange(filePath: string, fileSize: number, start: number): SessionEntry[] {
+function nextLineStart(filePath: string, pos: number, limit: number): number {
+  if (pos <= 0) return 0;
   const fd = openSync(filePath, "r");
   try {
-    const buf = Buffer.allocUnsafe(fileSize - start);
-    const n = readSync(fd, buf, 0, buf.length, start);
-    let text = buf.subarray(0, n).toString("utf8");
-    if (start > 0) {
-      const nl = text.indexOf("\n");
-      if (nl === -1) return [];
-      text = text.slice(nl + 1);
+    const buf = Buffer.allocUnsafe(64 * 1024);
+    let offset = pos;
+    while (offset < limit) {
+      const n = readSync(fd, buf, 0, Math.min(buf.length, limit - offset), offset);
+      if (n <= 0) break;
+      const nl = buf.subarray(0, n).indexOf(0x0a);
+      if (nl !== -1) return offset + nl + 1;
+      offset += n;
     }
+    return pos;
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function parseJsonlRange(filePath: string, start: number, end: number): SessionEntry[] {
+  if (end <= start) return [];
+  const fd = openSync(filePath, "r");
+  try {
+    const buf = Buffer.allocUnsafe(end - start);
+    const n = readSync(fd, buf, 0, buf.length, start);
+    const text = buf.subarray(0, n).toString("utf8");
     const entries: SessionEntry[] = [];
     for (const raw of text.split("\n")) {
       const line = raw.trim();
@@ -780,7 +795,7 @@ function parseJsonlRange(filePath: string, fileSize: number, start: number): Ses
           entries.push(parsed as SessionEntry);
         }
       } catch {
-        // skip malformed lines
+        // skip malformed or split lines
       }
     }
     return entries;
@@ -876,11 +891,10 @@ export function readSessionWindow(
 ): SessionWindow {
   const st = statSync(filePath);
   const limit = options.limit ?? SESSION_MESSAGE_WINDOW;
-  let budget = Math.min(SESSION_WINDOW_INITIAL_BYTES, st.size);
-  // ponytail: expanding tail re-read; recent 80 msgs usually fit in 512KB
+  const fileEnd = st.size;
+  let start = nextLineStart(filePath, Math.max(0, fileEnd - SESSION_WINDOW_INITIAL_BYTES), fileEnd);
+  let entries = parseJsonlRange(filePath, start, fileEnd);
   while (true) {
-    const start = Math.max(0, st.size - budget);
-    const entries = parseJsonlRange(filePath, st.size, start);
     const reachedStart = start === 0;
     const result = windowFromEntries(entries, {
       limit,
@@ -900,6 +914,23 @@ export function readSessionWindow(
         totalActiveMs: computeSessionTotalActiveMs(entries),
       };
     }
-    budget = Math.min(st.size, Math.max(budget * 2, budget + SESSION_WINDOW_INITIAL_BYTES));
+    const prev = start;
+    const raw = Math.max(0, prev - SESSION_WINDOW_INITIAL_BYTES);
+    start = raw === 0 ? 0 : nextLineStart(filePath, raw, prev);
+    if (start >= prev) start = 0;
+    entries = parseJsonlRange(filePath, start, prev).concat(entries);
+  }
+}
+
+export function findSessionEntry(filePath: string, entryId: string): SessionEntry | undefined {
+  const st = statSync(filePath);
+  let end = st.size;
+  let start = Math.max(0, end - SESSION_WINDOW_INITIAL_BYTES);
+  while (true) {
+    const found = parseJsonlRange(filePath, start, end).find((entry) => entry.id === entryId);
+    if (found) return found;
+    if (start === 0) return undefined;
+    end = start;
+    start = Math.max(0, start - SESSION_WINDOW_INITIAL_BYTES);
   }
 }

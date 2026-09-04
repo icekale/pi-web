@@ -309,7 +309,7 @@ export interface SessionInfo {
   name?: string;
   created: string;
   modified: string;
-  messageCount: number;
+  messageCount: number | null;
   firstMessage: string;
   parentSessionId?: string; // set if this session was forked from another
   sessionRole?: "primary" | "fork" | "subagent";

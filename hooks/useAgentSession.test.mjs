@@ -109,8 +109,13 @@ test("branch navigation awaits the server and reverts the leaf on failure", () =
     navigateSource.indexOf("setActiveLeafId(entryId)") > navigateSource.indexOf("navigate_tree"),
     "leaf must switch only after the server accepted the navigation",
   );
+  assert.match(leafSource, /sessionRunningRef\.current/);
   assert.match(leafSource, /await sendAgentCommand\(sid, \{ type: "navigate_tree", targetId: leafId \}\)/);
-  assert.match(leafSource, /setActiveLeafId\(/);
+  assert.ok(
+    leafSource.indexOf("navigate_tree") < leafSource.indexOf("setActiveLeafId(leafId)"),
+    "live leaf switch must navigate before changing local state",
+  );
+  assert.match(leafSource, /await loadContext\(sid, leafId\)/);
 });
 
 test("a rejected submission preserves a different run reported by the server", () => {
@@ -168,8 +173,13 @@ test("context usage refreshes from assistant completions and live agent state", 
   assert.match(source, /from "@\/lib\/conversation-context"/);
   assert.match(loadSource, /limit: String\(SESSION_MESSAGE_WINDOW\)/);
   assert.match(source, /const loadOlderHistory = useCallback/);
+  assert.match(source, /activeLeafIdRef\.current/);
+  assert.match(source, /\/api\/sessions\/\$\{encodeURIComponent\(sid\)\}\/context\?/);
+  assert.match(source, /mergeWindowedHistory/);
   assert.match(chatWindowSource, /loadOlderHistory\(\)\.then/);
   assert.match(chatWindowSource, /historyHasMore/);
+  assert.match(chatWindowSource, /sentinelArmedRef/);
+  assert.match(chatWindowSource, /if \(!entries\[0\]\?\.isIntersecting\)/);
 });
 
 test("new-session promotion rekeys drafts before publishing the real session", () => {

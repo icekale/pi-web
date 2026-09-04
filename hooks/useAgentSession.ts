@@ -28,7 +28,7 @@ import {
   CHAT_SCROLL_TAIL_TOLERANCE,
   getLiveFollowAttached,
 } from "@/lib/chat-lazy-load";
-import { SESSION_MESSAGE_WINDOW } from "@/lib/session-window";
+import { SESSION_MESSAGE_WINDOW, mergeWindowedHistory } from "@/lib/session-window";
 import {
   INITIAL_STREAMING_STATE,
   streamReducer,
@@ -331,8 +331,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const entryIdsRef = useRef<string[]>([]);
   const historyHasMoreRef = useRef(false);
   const loadingOlderRef = useRef(false);
+  const activeLeafIdRef = useRef<string | null>(null);
+  const messagesRef = useRef<AgentMessage[]>([]);
   entryIdsRef.current = entryIds;
   historyHasMoreRef.current = historyHasMore;
+  activeLeafIdRef.current = activeLeafId;
+  messagesRef.current = messages;
   const sessionPropIdRef = useRef<string | null>(session?.id ?? null);
   const sessionRunningRef = useRef(Boolean(sessionRunning));
   const agentRunningRef = useRef(false);
@@ -504,6 +508,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         deferToolResults: "1",
         limit: String(SESSION_MESSAGE_WINDOW),
       });
+      if (activeLeafIdRef.current) params.set("leafId", activeLeafIdRef.current);
       const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}?${params}`);
       if (res.status === 404) {
         if (showLoading) {
@@ -519,12 +524,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json() as SessionData;
       if (sessionIdRef.current !== sid) return null;
-      const persistedMessages = d.context.messages;
+      const incomingIds = d.context.entryIds ?? [];
+      const merged = mergeWindowedHistory(
+        messagesRef.current,
+        entryIdsRef.current,
+        d.context.messages,
+        incomingIds,
+      );
       textDeltaBatcher.flush();
       setData(d);
       setActiveLeafId(d.leafId);
-      setMessages(persistedMessages);
-      setEntryIds(d.context.entryIds ?? []);
+      setMessages(merged.items);
+      setEntryIds(merged.entryIds);
       setHistoryHasMore(Boolean(d.hasMore));
       setCurrentModelOverride((current) => modelSwitchPendingRef.current ? current : null);
       setError(null);
@@ -614,7 +625,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         limit: String(SESSION_MESSAGE_WINDOW),
         before,
       });
-      const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}?${params}`);
+      if (activeLeafIdRef.current) params.set("leafId", activeLeafIdRef.current);
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}/context?${params}`);
       if (!res.ok) return 0;
       const d = await res.json() as SessionData;
       if (sessionIdRef.current !== sid || entryIdsRef.current[0] !== before) return 0;
@@ -1643,18 +1655,17 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (bashRunningRef.current) return;
     const sid = sessionIdRef.current;
     if (!sid) return;
-    const previousLeafId = activeLeafId;
-    setActiveLeafId(leafId);
-    await loadContext(sid, leafId);
-    if (leafId) {
+    if (leafId && sessionRunningRef.current) {
       try {
         await sendAgentCommand(sid, { type: "navigate_tree", targetId: leafId });
       } catch (error) {
         console.error("Branch switch failed:", error);
-        setActiveLeafId(previousLeafId);
+        return;
       }
     }
-  }, [activeLeafId, loadContext]);
+    setActiveLeafId(leafId);
+    await loadContext(sid, leafId);
+  }, [loadContext]);
 
   const handleModelChange = useCallback(async (provider: string, modelId: string) => {
     if (isNew) {

@@ -1,4 +1,4 @@
-import { getSessionEntries, resolveSessionPath } from "@/lib/session-reader";
+import { findSessionEntry, resolveSessionPath } from "@/lib/session-reader";
 import { getRpcSession } from "@/lib/rpc-manager";
 import { normalizeToolCalls } from "@/lib/normalize";
 import type { SessionEntry } from "@/lib/types";
@@ -16,10 +16,9 @@ export async function GET(
       return Response.json({ error: "Session not found" }, { status: 404 });
     }
 
-    const entries = (liveRpc
-      ? liveRpc.inner.sessionManager.getEntries()
-      : getSessionEntries(filePath!)) as unknown as SessionEntry[];
-    const entry = entries.find((candidate) => candidate.id === entryId);
+    const entry = (liveRpc
+      ? (liveRpc.inner.sessionManager.getEntries() as unknown as SessionEntry[]).find((candidate) => candidate.id === entryId)
+      : findSessionEntry(filePath!, entryId));
     if (!entry || entry.type !== "message" || entry.message.role !== "toolResult") {
       return Response.json({ error: "Tool result not found" }, { status: 404 });
     }
