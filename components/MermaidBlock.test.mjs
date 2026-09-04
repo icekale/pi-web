@@ -68,11 +68,14 @@ function renderCode(props) {
   );
 }
 
-test("CodeBlock highlights code when not streaming", () => {
+test("CodeBlock lazy-loads Prism", async () => {
   const html = renderCode({ code: "const x = 1;", lang: "javascript" });
+  const source = await import("node:fs/promises").then(({ readFile }) => (
+    readFile(new URL("./MermaidBlock.tsx", import.meta.url), "utf8")
+  ));
 
-  assert.match(html, /class="token/);
   assert.match(html, /const/);
+  assert.match(source, /lazy\(\(\) =>\s*import\("react-syntax-highlighter"\)/);
 });
 
 test("CodeBlock renders plain text without tokenization while streaming", () => {

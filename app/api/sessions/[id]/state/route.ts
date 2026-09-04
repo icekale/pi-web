@@ -1,4 +1,4 @@
-import { getRpcSession, startRpcSession } from "@/lib/rpc-manager";
+import { getRpcSession } from "@/lib/rpc-manager";
 import { resolveSessionPath } from "@/lib/session-reader";
 
 export async function GET(
@@ -18,13 +18,8 @@ export async function GET(
       return Response.json({ error: "Session not found" }, { status: 404 });
     }
 
-    // Sessions are spawned lazily on first prompt; opening a session must
-    // bring its runtime up too, otherwise extension widgets/status rendered
-    // from get_state (e.g. rpiv-todo's panel) never appear until a message
-    // is sent.
-    const { session } = await startRpcSession(id, filePath, undefined);
-    const state = await session.send({ type: "get_state" });
-    return Response.json({ running: true, state });
+    // ponytail: don't load 15 extensions just to open history; widgets come back on first prompt
+    return Response.json({ running: false });
   } catch (error) {
     return Response.json({ error: String(error) }, { status: 500 });
   }

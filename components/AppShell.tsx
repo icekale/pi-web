@@ -30,9 +30,11 @@ import { hasActiveDescendant, useSubagentTree } from "@/hooks/useSubagentTree";
 import { SessionBreadcrumb, SubagentComposer, SubagentTree, DesktopSubagentCard, buildBreadcrumbItems, countSubagentNodes, findSubagentNode } from "./SubagentSessions";
 import type { SubagentTreeNode } from "@/lib/api-types";
 import { ChatWindow } from "./ChatWindow";
-import { FileViewer } from "./FileViewer";
 import { TabBar, type Tab } from "./TabBar";
 import { openFileTab, saveFileViewerState } from "./file-tab-state";
+const FileViewer = lazy(() => import("./FileViewer").then((module) => ({
+  default: module.FileViewer,
+})));
 const SettingsPage = lazy(() => import("./SettingsPage").then((module) => ({
   default: module.SettingsPage,
 })));
@@ -2429,6 +2431,7 @@ export function AppShell() {
         {/* Only the active viewer is mounted. Lightweight per-tab state is restored on activation. */}
         <div style={{ flex: 1, overflow: "hidden", paddingBottom: "env(safe-area-inset-bottom)" }}>
           {activeFileTab?.filePath ? (
+            <Suspense fallback={null}>
             <FileViewer
               key={`${activeFileTab.id}:${activeFileTab.viewerRevision ?? 0}`}
               filePath={activeFileTab.filePath}
@@ -2451,6 +2454,7 @@ export function AppShell() {
                 { sourceSessionId: activeFileTab.sourceSessionId },
               )}
             />
+            </Suspense>
           ) : (
             <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: "var(--text-meta)" }}>
                {translate("files.noneOpen")}

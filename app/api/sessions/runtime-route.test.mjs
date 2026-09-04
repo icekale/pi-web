@@ -98,6 +98,28 @@ test("live detail and state routes work without a persisted JSONL file", async (
   });
 });
 
+test("idle session state does not start a runtime", async (t) => {
+  const previousRegistry = globalThis.__piSessions;
+  const dir = mkdtempSync(join(tmpdir(), "pi-web-idle-state-"));
+  const id = "idle-state-test";
+  const path = join(dir, `${id}.jsonl`);
+  writeFileSync(path, `${JSON.stringify({
+    type: "session", version: 3, id, timestamp: "2026-08-14T00:00:00.000Z", cwd: dir,
+  })}\n`);
+  cacheSessionPath(id, path);
+  globalThis.__piSessions = new Map();
+  t.after(() => {
+    globalThis.__piSessions = previousRegistry;
+  });
+
+  const response = await getSessionState(
+    new Request(`http://localhost/api/sessions/${id}/state`),
+    { params: Promise.resolve({ id }) },
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { running: false });
+});
+
 test("delete of an unknown session still returns 404", async (t) => {
   const previousRegistry = globalThis.__piSessions;
   globalThis.__piSessions = new Map();

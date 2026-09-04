@@ -6,7 +6,6 @@ import {
   createRootRoute,
 } from "@tanstack/react-router";
 import "@fontsource-variable/noto-sans-mono";
-import "katex/dist/katex.min.css";
 import "@/app/globals.css";
 import { PwaRegistration } from "@/components/PwaRegistration";
 

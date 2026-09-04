@@ -1,5 +1,9 @@
 import type { Options as ReactMarkdownOptions } from "react-markdown";
 import rehypeKatex from "rehype-katex";
+
+if (typeof document !== "undefined") {
+  void import("katex/dist/katex.min.css");
+}
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkFrontmatter from "remark-frontmatter";

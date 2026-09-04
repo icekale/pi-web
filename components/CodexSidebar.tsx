@@ -760,7 +760,12 @@ export function CodexSidebar({
         </button>
         {recentOpen && (
         <div role="list">
-          {filterQuery && recentSessions.length === 0 && (
+          {loading && (
+            <div className="codex-sidebar-skeleton" aria-busy="true" aria-label={t("sidebar.loading")}>
+              <i /><i /><i />
+            </div>
+          )}
+          {filterQuery && recentSessions.length === 0 && !loading && (
             <div className="codex-sidebar-empty">{t("sidebar.noMatches")}</div>
           )}
           {recentSessions.map(({ session, projectLabel }) => (
@@ -795,7 +800,11 @@ export function CodexSidebar({
       <section className="codex-sidebar-section">
         <div className="codex-sidebar-workspace-title">{t("sidebar.projects")}</div>
         <div className="codex-sidebar-project-list" role="list">
-          {loading && <div className="codex-sidebar-empty">{t("sidebar.loading")}</div>}
+          {loading && (
+            <div className="codex-sidebar-skeleton" aria-busy="true" aria-label={t("sidebar.loading")}>
+              <i /><i /><i /><i /><i />
+            </div>
+          )}
           {error && <div className="codex-sidebar-error">{error}</div>}
           {!loading && !error && visibleProjects.length === 0 && (
             <div className="codex-sidebar-empty">{t("sidebar.noProjects")}</div>

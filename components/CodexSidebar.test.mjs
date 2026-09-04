@@ -17,6 +17,11 @@ test("AppShell renders the Codex project sidebar instead of the legacy sidebar",
   assert.doesNotMatch(shell, /<SessionSidebar/);
 });
 
+test("sidebar shows a skeleton while sessions load", () => {
+  assert.match(sidebar, /codex-sidebar-skeleton/);
+  assert.match(styles, /@keyframes codex-skeleton/);
+});
+
 test("brand header keeps refresh separate from workspace controls", () => {
   assert.match(sidebar, /onToggleSidebar\?: \(\) => void/);
   assert.match(sidebar, /codex-sidebar-brand-header[\s\S]*?codex-sidebar-brand[\s\S]*?sidebar\.refresh[\s\S]*?codex-sidebar-new-task/);

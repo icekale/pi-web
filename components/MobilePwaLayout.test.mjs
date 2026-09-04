@@ -48,6 +48,7 @@ test("keeps the composer symmetric now that the minimap sits outside the column"
   assert.doesNotMatch(chatInputSource, /minimapOffset/);
   assert.match(chatInputSource, /padding: "0 16px 8px"/);
   assert.doesNotMatch(chatWindowSource, /minimapOffset/);
+  assert.match(chatWindowSource, /const ChatMinimap = lazy\(\(\) => import\("\.\/ChatMinimap"\)/);
   assert.match(chatWindowSource, /<ChatMinimap[\s\S]*desktop-workspace-context/);
 });
 

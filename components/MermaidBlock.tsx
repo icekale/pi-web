@@ -1,9 +1,8 @@
 "use client";
 
-import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { vs } from "react-syntax-highlighter/dist/cjs/styles/prism";
-import { vscDarkPlus } from "react-syntax-highlighter/dist/cjs/styles/prism";
+import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import vs from "react-syntax-highlighter/dist/cjs/styles/prism/vs";
+import vscDarkPlus from "react-syntax-highlighter/dist/cjs/styles/prism/vsc-dark-plus";
 import { useTheme } from "@/hooks/useTheme";
 import { useI18n } from "@/hooks/useI18n";
 import { copyText } from "@/lib/clipboard";
@@ -17,6 +16,44 @@ interface MermaidBlockProps {
 const ZOOM_STEP = 0.25;
 const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 3;
+
+const SyntaxHighlighter = lazy(() =>
+  import("react-syntax-highlighter").then((module) => ({ default: module.Prism })),
+);
+
+const CODE_BODY_STYLE: CSSProperties = {
+  margin: 0,
+  padding: "11px 13px",
+  fontSize: "var(--text-ui)",
+  lineHeight: "var(--leading-prose)",
+  overflowX: "auto",
+  background: "color-mix(in srgb, var(--bg) 92%, var(--bg-panel))",
+};
+
+function CodeFallback({ code }: { code: string }) {
+  return (
+    <pre style={CODE_BODY_STYLE}>
+      <code style={{ fontFamily: "var(--font-mono)" }}>{code}</code>
+    </pre>
+  );
+}
+
+function HighlightedCode({ code, lang, isDark }: { code: string; lang: string; isDark: boolean }) {
+  return (
+    <Suspense fallback={<CodeFallback code={code} />}>
+      <SyntaxHighlighter
+        language={lang || "text"}
+        style={isDark ? vscDarkPlus : vs}
+        showLineNumbers
+        lineNumberStyle={{ color: "var(--text-dim)", fontStyle: "normal" }}
+        customStyle={{ ...CODE_BODY_STYLE, borderRadius: 0, overflowX: undefined }}
+        codeTagProps={{ style: { fontFamily: "var(--font-mono)" } }}
+      >
+        {code}
+      </SyntaxHighlighter>
+    </Suspense>
+  );
+}
 
 type RenderState =
   | { key: string; status: "loading" }
@@ -271,38 +308,7 @@ export const CodeBlock = memo(function CodeBlock({ code, lang, headerAction, isS
           </button>
         </div>
       </div>
-      {isStreaming ? (
-        <pre
-          style={{
-            margin: 0,
-            padding: "11px 13px",
-            fontSize: "var(--text-ui)",
-            lineHeight: "var(--leading-prose)",
-            overflowX: "auto",
-            background: "color-mix(in srgb, var(--bg) 92%, var(--bg-panel))",
-          }}
-        >
-          <code style={{ fontFamily: "var(--font-mono)" }}>{code}</code>
-        </pre>
-      ) : (
-        <SyntaxHighlighter
-          language={lang || "text"}
-          style={isDark ? vscDarkPlus : vs}
-          showLineNumbers
-          lineNumberStyle={{ color: "var(--text-dim)", fontStyle: "normal" }}
-          customStyle={{
-            margin: 0,
-            padding: "11px 13px",
-            fontSize: "var(--text-ui)",
-            lineHeight: "var(--leading-prose)",
-            borderRadius: 0,
-            background: "color-mix(in srgb, var(--bg) 92%, var(--bg-panel))",
-          }}
-          codeTagProps={{ style: { fontFamily: "var(--font-mono)" } }}
-        >
-          {code}
-        </SyntaxHighlighter>
-      )}
+      {isStreaming ? <CodeFallback code={code} /> : <HighlightedCode code={code} lang={lang} isDark={isDark} />}
     </div>
   );
 });

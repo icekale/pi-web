@@ -1180,6 +1180,25 @@ pre, code {
 }
 .codex-recent-session-title { font-weight: 520; }
 .codex-recent-session-time { flex-shrink: 0; color: var(--text-dim); font-size: var(--text-meta); }
+.codex-sidebar-skeleton {
+  display: grid;
+  gap: 8px;
+  padding: 10px 9px;
+}
+.codex-sidebar-skeleton > * {
+  height: 11px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--text-muted) 22%, var(--bg));
+  animation: codex-skeleton 1.2s ease-in-out infinite;
+}
+.codex-sidebar-skeleton > :nth-child(2) { width: 78%; animation-delay: .12s; }
+.codex-sidebar-skeleton > :nth-child(3) { width: 62%; animation-delay: .24s; }
+.codex-sidebar-skeleton > :nth-child(4) { width: 86%; animation-delay: .08s; }
+.codex-sidebar-skeleton > :nth-child(5) { width: 54%; animation-delay: .2s; }
+@keyframes codex-skeleton {
+  0%, 100% { opacity: .45; }
+  50% { opacity: 1; }
+}
 .codex-sidebar-empty,
 .codex-project-no-sessions,
 .codex-sidebar-error {

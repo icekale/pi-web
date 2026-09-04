@@ -555,7 +555,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const refreshContextUsage = useCallback((sid: string) => {
     // GET /api/agent/[id] reads a live wrapper if one exists and never starts one.
-    // /api/sessions/[id]/state would call startRpcSession() and wake an idle runtime.
     fetch(`/api/agent/${encodeURIComponent(sid)}`)
       .then((r) => r.json())
       .then((d: { state?: AgentStateResponse }) => {

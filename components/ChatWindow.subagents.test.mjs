@@ -33,8 +33,7 @@ test("read-only mode never connects child SSE or starts a child runtime", async 
   assert.doesNotMatch(refreshEffect, /maintainEventsConnected/);
   assert.doesNotMatch(refreshEffect, /startRpcSession/);
   const stateRoute = await readFile(new URL("../app/api/sessions/[id]/state/route.ts", import.meta.url), "utf8");
-  // The read-only path must not reach the state route that starts wrappers.
-  assert.match(stateRoute, /startRpcSession/);
+  assert.doesNotMatch(stateRoute, /startRpcSession/);
 });
 
 test("ChatWindow accepts an external composer that replaces the normal input", async () => {

@@ -1,7 +1,7 @@
 "use client";
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
 import { ArrowDown, Bug, ChevronRight, Compass, ExternalLink, GitPullRequest, Sparkles, X } from "lucide-react";
-import { Fragment, cloneElement, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, cloneElement, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, BlockingExtensionUiRequest, CustomMessage, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage, UserMessage } from "@/lib/types";
 import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
@@ -9,7 +9,6 @@ import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantB
 import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-files";
 import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
-import { ChatMinimap, useMessageRefs } from "./ChatMinimap";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { ConversationPlan, getConversationPlanWidget } from "./ConversationPlan";
 import { filterSubagentWidgets, isPiSubagentWidgetKey } from "./ExtensionWidgets";
@@ -31,6 +30,10 @@ import {
   restoreScrollTop,
   VISIBLE_PAGE_SIZE,
 } from "@/lib/chat-lazy-load";
+
+const ChatMinimap = lazy(() => import("./ChatMinimap").then((module) => ({
+  default: module.ChatMinimap,
+})));
 
 interface Props {
   session: SessionInfo | null;
@@ -276,6 +279,12 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, hasError = false, de
       )}
     </div>
   );
+}
+
+function useMessageRefs(count: number): RefObject<(HTMLDivElement | null)[]> {
+  const refs = useRef<(HTMLDivElement | null)[]>([]);
+  refs.current = Array(count).fill(null).map((_, i) => refs.current[i] ?? null);
+  return refs;
 }
 
 export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, desktopAside, playDoneSound = () => {}, unlockAudio, subagentMode, subagentTreeVisible = false, tokenSpeedEnabled = true }: Props) {
@@ -1055,6 +1064,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
         <ExtensionStatusBar statuses={visibleStatuses} widgets={footerWidgets} />
         </div>
         {isMobile ? null : (
+          <Suspense fallback={null}>
           <ChatMinimap
             messages={messages}
             streamingMessage={streamState.streamingMessage}
@@ -1062,6 +1072,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
             messageRefs={messageRefs}
             onRevealHistory={revealHistoryForMinimap}
           />
+          </Suspense>
         )}
         </>
         </div>
