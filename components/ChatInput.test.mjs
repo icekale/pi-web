@@ -475,6 +475,27 @@ test("busy Enter queues, Cmd/Ctrl+Enter interjects, empty-draft chord flushes th
   assert.match(source, /sendQueued\(accelerated\)/);
 });
 
+test("renders the compact composer with the standard Send button and no session controls", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(
+      I18nProvider,
+      null,
+      React.createElement(ChatInput, {
+        onSend() {},
+        onAbort() {},
+        isStreaming: false,
+        compact: true,
+      }),
+    ),
+  );
+
+  assert.match(html, /<textarea/);
+  assert.match(html, />Send<\/button>/);
+  assert.match(html, /aria-label="My question:"/);
+  assert.doesNotMatch(html, /composer-workspace-hint/);
+
+});
+
 test("IME grace does not swallow Cmd/Ctrl+Enter interject", async () => {
   const source = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
   const start = source.indexOf("if (sendShortcut && (isComposing || recentlyComposed))");

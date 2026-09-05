@@ -76,6 +76,8 @@ interface Props {
   /** Deliver one queued message into the running turn now. */
   onQueueSteerItem?: (kind: "steering" | "followUp", text: string) => void;
   isStreaming: boolean;
+  /** Text-only composer without the session controls or outer spacing. */
+  compact?: boolean;
   model?: { provider: string; modelId: string } | null;
   isAutoModelSelection?: boolean;
   modelNames?: Record<string, string>;
@@ -699,6 +701,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   draftKey,
   cwd,
   workspaceHint,
+  compact = false,
 }: Props, ref) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
@@ -943,6 +946,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }));
 
   const processImageFiles = useCallback(async (files: File[]) => {
+    if (compact) return;
     const remaining = Math.max(
       0,
       MAX_ATTACHED_IMAGES - attachedImagesRef.current.length - pendingImageCountRef.current,
@@ -979,7 +983,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     } finally {
       pendingImageCountRef.current -= imageFiles.length;
     }
-  }, []);
+  }, [compact]);
 
   const removeImage = useCallback((index: number) => {
     setAttachedImages((prev) => {
@@ -1085,7 +1089,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     onSend(msg, attachedImages.length ? attachedImages : undefined);
   }, [value, attachedImages, isStreaming, onBuiltinCommand, onSend, clearInput, onAudioUnlock]);
 
-  const slashQuery = value.startsWith("/") && !/\s/.test(value.slice(1))
+  const slashQuery = !compact && value.startsWith("/") && !/\s/.test(value.slice(1))
     ? value.slice(1).toLowerCase()
     : null;
 
@@ -1565,13 +1569,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, []);
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    if (compact) return;
     const items = Array.from(e.clipboardData?.items ?? []);
     const imageItems = items.filter((item) => item.type.startsWith("image/"));
     if (!imageItems.length) return;
     e.preventDefault();
     const files = imageItems.map((item) => item.getAsFile()).filter((f): f is File => f !== null);
     processImageFiles(files);
-  }, [processImageFiles]);
+  }, [compact, processImageFiles]);
 
   useEffect(() => {
     if (slashQuery === null) {
@@ -1753,7 +1758,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       style={{
         flexShrink: 0,
         background: "transparent",
-        padding: "0 16px 8px",
+        padding: compact ? 0 : "0 16px 8px",
       }}
     >
       {/* Hidden file input */}
@@ -2194,16 +2199,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               flexDirection: "column",
               gap: isMobile ? 8 : 10,
               background: "var(--bg)",
-              border: `1px solid ${bashMode ? "var(--tool-bg)" : "color-mix(in srgb, var(--border) 80%, transparent)"}`,
-              borderRadius: isMobile ? 20 : 12,
-              padding: isMobile ? "10px 12px 8px" : "12px 14px 9px",
-              boxShadow: isMobile
+              border: compact ? "none" : `1px solid ${bashMode ? "var(--tool-bg)" : "color-mix(in srgb, var(--border) 80%, transparent)"}`,
+              borderRadius: compact ? 0 : isMobile ? 20 : 12,
+              padding: compact ? 0 : isMobile ? "10px 12px 8px" : "12px 14px 9px",
+              boxShadow: compact ? "none" : isMobile
                 ? "0 2px 12px rgba(0,0,0,0.06)"
                 : "0 2px 8px rgba(0,0,0,0.05)",
               transition: "border-color 0.15s, background 0.15s",
             } as React.CSSProperties}
           >
-          {workspaceHint ? (
+          {compact ? null : workspaceHint ? (
             <div
               className="composer-workspace-hint"
               title={cwd ?? workspaceHint}
@@ -2238,7 +2243,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             }}
             onInput={handleInput}
             onPaste={handlePaste}
-            aria-label={t("chat.composerLabel")}
+            aria-label={compact ? t("chat.quoteQuestion") : t("chat.composerLabel")}
             placeholder={
               isStreaming && (onSteer || onFollowUp)
                 ? ((value.trim() || attachedImages.length)
@@ -2262,7 +2267,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               fontSize: "var(--text-chat)",
               lineHeight: "var(--leading-prose)",
               fontFamily: "inherit",
-              minHeight: isMobile ? 24 : 28,
+              minHeight: compact ? 96 : isMobile ? 24 : 28,
               maxHeight: 200,
               overflow: "auto",
             }}
@@ -2270,7 +2275,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
 
         {/* Bash mode status label */}
-        {bashMode && (
+        {compact ? null : bashMode && (
           <div className="text-xs px-2 py-1" style={{ color: bashExcluded ? "var(--text-muted)" : "var(--accent)", marginTop: 4 }}>
              {t("chat.shell")} · {bashExcluded ? t("chat.outputLocal") : t("chat.outputModel")}
           </div>
@@ -2278,7 +2283,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
         {/* Toolbar: + | model | chips | send */}
         <div style={{
-          display: isMobile ? "grid" : "flex",
+          display: compact ? "none" : isMobile ? "grid" : "flex",
           gridTemplateColumns: isMobile ? "auto minmax(0, 1fr) auto" : undefined,
           alignItems: "center",
           gap: 4,
@@ -2676,6 +2681,15 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             </button>
           )}
           </div>
+        {compact ? (
+          <button
+            type="button"
+            onClick={handleSend}
+            disabled={!value.trim()}
+          >
+            {t("chat.send")}
+          </button>
+        ) : null}
         </div>
         </div>
         </div>

@@ -2,12 +2,14 @@
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
 import { ArrowDown, Bug, ChevronRight, Compass, ExternalLink, GitPullRequest, Sparkles, X } from "lucide-react";
 import { Fragment, cloneElement, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, BlockingExtensionUiRequest, CustomMessage, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage, UserMessage } from "@/lib/types";
 import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
-import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, splitFinalAssistantBlocks } from "@/lib/message-display";
+import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, splitFinalAssistantBlocks, splitThinkingBlocks } from "@/lib/message-display";
 import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-files";
-import { MessageView } from "./MessageView";
+import { buildQuotedSelection } from "@/lib/quoted-selection";
+import { MessageView, ThinkingBlock } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
 import { ExtensionStatusBar } from "./ExtensionStatusBar";
 import { ConversationPlan, getConversationPlanWidget } from "./ConversationPlan";
@@ -53,6 +55,10 @@ interface Props {
   onSessionStatsPanelOpen?: () => void;
   onContextUsageChange?: (usage: { percent: number | null; contextWindow: number; tokens: number | null } | null) => void;
   onOpenFile?: (filePath: string) => void;
+  onAskInNewChat?: (prompt: string, sourceSessionId: string, sourceEntryId: string) => Promise<void>;
+  quoteSelectionEnabled?: boolean;
+  initialPrompt?: string;
+  onInitialPromptConsumed?: () => void;
   /** Optional right-side slot rendered only inside the session workspace. */
   desktopAside?: ReactNode;
   /** Completion sound state + controls, owned by AppShell so tasks finishing in
@@ -199,23 +205,6 @@ function getUserInputText(message: AgentMessage): string | null {
   return text.length > 0 ? text : null;
 }
 
-function countToolCalls(messages: AgentMessage[], indices: number[]): number {
-  let count = 0;
-  for (const idx of indices) {
-    const msg = messages[idx];
-    if (msg?.role !== "assistant") continue;
-    count += countToolCallBlocks(getDisplayableAssistantBlocks(msg as AssistantMessage));
-  }
-  return count;
-}
-
-function hasDisplayableProcessMessage(message: AgentMessage): boolean {
-  if (message.role === "assistant") {
-    return getDisplayableAssistantBlocks(message as AssistantMessage).length > 0;
-  }
-  return message.role === "custom";
-}
-
 // A user message normally anchors a turn (user prompt → process → final
 // answer), and the process messages in between get folded into a collapsed
 // ProcessDetailsGroup. When compaction fires mid-turn, pi drops the original
@@ -288,7 +277,7 @@ function useMessageRefs(count: number): RefObject<(HTMLDivElement | null)[]> {
   return refs;
 }
 
-export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, desktopAside, playDoneSound = () => {}, unlockAudio, subagentMode, subagentTreeVisible = false, tokenSpeedEnabled = true }: Props) {
+export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionDraftKey, onAgentEnd, onAttentionNeeded, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile, onAskInNewChat, quoteSelectionEnabled = false, initialPrompt, onInitialPromptConsumed, desktopAside, playDoneSound = () => {}, unlockAudio, subagentMode, subagentTreeVisible = false, tokenSpeedEnabled = true }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const isWideDesktop = useIsWideDesktop();
@@ -327,6 +316,26 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     historyRefreshGeneration: subagentMode?.transcriptRefreshGeneration,
   });
   const sessionBusy = agentRunning || bashRunning;
+  const [quotedSelection, setQuotedSelection] = useState<{
+    text: string;
+    top: number;
+    left: number;
+    sourceEntryId?: string;
+  } | null>(null);
+  const [quoteInputOpen, setQuoteInputOpen] = useState(false);
+  const [quoteSubmitting, setQuoteSubmitting] = useState(false);
+  const [quoteError, setQuoteError] = useState<string | null>(null);
+  const quotePopoverRef = useRef<HTMLDivElement | null>(null);
+  const quoteChatInputRef = useRef<ChatInputHandle | null>(null);
+  const closeQuotedSelection = useCallback(() => {
+    setQuotedSelection(null);
+    setQuoteInputOpen(false);
+    setQuoteError(null);
+  }, []);
+
+  useEffect(() => {
+    if (!quoteSelectionEnabled) closeQuotedSelection();
+  }, [quoteSelectionEnabled, closeQuotedSelection]);
   const goalModel = resolveGoalPanelModel({
     widgets: extensionWidgets,
     statuses: extensionStatuses,
@@ -504,6 +513,133 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
   const hasStreamingContent = Boolean(streamState.streamingMessage?.content.length);
   const messageCwd = session?.cwd ?? newSessionCwd ?? undefined;
   const messageContentRef = useRef<HTMLDivElement | null>(null);
+  const captureQuotedSelection = useCallback(() => {
+    if (!quoteSelectionEnabled || quoteInputOpen) return;
+    const selection = window.getSelection();
+    const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+    const root = messageContentRef.current;
+    if (!selection || selection.isCollapsed || !range || !root || !root.contains(range.commonAncestorContainer)) {
+      setQuotedSelection(null);
+      return;
+    }
+    const text = selection.toString().trim();
+    if (!text) {
+      setQuotedSelection(null);
+      return;
+    }
+    const rect = range.getBoundingClientRect();
+    const ancestor = range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
+      ? range.commonAncestorContainer as Element
+      : range.commonAncestorContainer.parentElement;
+    const start = range.startContainer.nodeType === Node.ELEMENT_NODE
+      ? range.startContainer as Element
+      : range.startContainer.parentElement;
+    const end = range.endContainer.nodeType === Node.ELEMENT_NODE
+      ? range.endContainer as Element
+      : range.endContainer.parentElement;
+    const sourceEntryId = [ancestor, start, end]
+      .map((element) => element?.closest<HTMLElement>("[data-message-role=\"assistant\"]")?.dataset.entryId)
+      .find((entryId): entryId is string => Boolean(entryId));
+    setQuotedSelection({
+      text,
+      top: Math.min(window.innerHeight - 44, rect.bottom + 8),
+      left: Math.max(64, Math.min(window.innerWidth - 64, rect.left + rect.width / 2)),
+      sourceEntryId,
+    });
+  }, [quoteSelectionEnabled, quoteInputOpen]);
+
+  useEffect(() => {
+    if (!quoteInputOpen || !quotedSelection) return;
+    quoteChatInputRef.current?.insertIfEmpty(buildQuotedSelection(
+      quotedSelection.text,
+      t("chat.quoteIntro"),
+      t("chat.quoteQuestion"),
+    ));
+  }, [quoteInputOpen, quotedSelection, t]);
+
+  useLayoutEffect(() => {
+    const popover = quotePopoverRef.current;
+    if (!popover || !quotedSelection) return;
+    const viewport = window.visualViewport;
+    const position = () => {
+      const rect = popover.getBoundingClientRect();
+      const top = viewport?.offsetTop ?? 0;
+      const left = viewport?.offsetLeft ?? 0;
+      popover.style.top = `${Math.max(top + 8, Math.min(quotedSelection.top, top + (viewport?.height ?? window.innerHeight) - rect.height - 8))}px`;
+      popover.style.left = `${Math.max(left + 8, Math.min(quotedSelection.left - rect.width / 2, left + (viewport?.width ?? window.innerWidth) - rect.width - 8))}px`;
+    };
+    position();
+    const observer = new ResizeObserver(position);
+    observer.observe(popover);
+    window.addEventListener("resize", position);
+    viewport?.addEventListener("resize", position);
+    viewport?.addEventListener("scroll", position);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", position);
+      viewport?.removeEventListener("resize", position);
+      viewport?.removeEventListener("scroll", position);
+    };
+  }, [quotedSelection, quoteInputOpen, quoteError]);
+
+  useEffect(() => {
+    if (!quotedSelection) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!quoteInputOpen && !quotePopoverRef.current?.contains(event.target as Node)) closeQuotedSelection();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.isComposing) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (!quoteSubmitting) closeQuotedSelection();
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [quotedSelection, quoteInputOpen, quoteSubmitting, closeQuotedSelection]);
+
+  const askSelectionHere = useCallback(() => {
+    if (!quotedSelection) return;
+    chatInputRef?.current?.insertText(buildQuotedSelection(
+      quotedSelection.text,
+      t("chat.quoteIntro"),
+      t("chat.quoteQuestion"),
+    ));
+    window.getSelection()?.removeAllRanges();
+    closeQuotedSelection();
+  }, [chatInputRef, quotedSelection, closeQuotedSelection, t]);
+
+  const askSelectionInNewChat = useCallback(async (prompt: string) => {
+    const sourceSessionId = sessionIdRef.current ?? session?.id;
+    if (quoteSubmitting || !prompt.trim() || !quotedSelection?.sourceEntryId || !sourceSessionId || !onAskInNewChat) return;
+    setQuoteSubmitting(true);
+    setQuoteError(null);
+    unlockAudio?.();
+    try {
+      await onAskInNewChat(
+        prompt,
+        sourceSessionId,
+        quotedSelection.sourceEntryId,
+      );
+      closeQuotedSelection();
+    } catch (error) {
+      quoteChatInputRef.current?.restoreSubmission(prompt);
+      setQuoteError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setQuoteSubmitting(false);
+    }
+  }, [onAskInNewChat, quotedSelection, quoteSubmitting, session?.id, closeQuotedSelection, unlockAudio]);
+
+  const initialPromptSentRef = useRef(false);
+  useEffect(() => {
+    if (loading || error || !initialPrompt || initialPromptSentRef.current) return;
+    initialPromptSentRef.current = true;
+    onInitialPromptConsumed?.();
+    void handleSend(initialPrompt);
+  }, [initialPrompt, loading, error, handleSend, onInitialPromptConsumed]);
   const promptAnchorSpacerRef = useRef<HTMLDivElement | null>(null);
   const promptAnchorSpacerHeightRef = useRef(0);
   const promptAnchorMeasureFrameRef = useRef<number | null>(null);
@@ -813,7 +949,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
         </div>
         <div ref={scrollContainerRef} className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto pt-4 [scrollbar-width:none]">
           <div style={{ minWidth: 0, padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
-            <div ref={messageContentRef} style={{ width: "100%", minWidth: 0, maxWidth: DESKTOP_TRANSCRIPT_WIDTH, margin: "0 auto" }}>
+            <div ref={messageContentRef} onPointerUp={captureQuotedSelection} style={{ width: "100%", minWidth: 0, maxWidth: DESKTOP_TRANSCRIPT_WIDTH, margin: "0 auto" }}>
             {(() => {
               let lastUserIdx = -1;
               for (let i = messages.length - 1; i >= 0; i--) {
@@ -929,50 +1065,84 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
 
                 rendered.push(renderMessage(userIdx));
 
-                const processIndices: number[] = [];
-                for (let processIdx = userIdx + 1; processIdx < finalAssistantIdx; processIdx++) {
-                  processIndices.push(processIdx);
-                }
-                const visibleProcessIndices = processIndices.filter((processIdx) => hasDisplayableProcessMessage(messages[processIdx]));
                 const finalAssistant = messages[finalAssistantIdx] as AssistantMessage;
                 const finalSplit = splitFinalAssistantBlocks(finalAssistant);
-                const finalProcessMessage = finalSplit.processBlocks.length > 0
-                  ? withAssistantBlocks(finalAssistant, finalSplit.processBlocks, { omitUsage: true })
-                  : null;
                 const finalAnswerMessage = finalSplit.answerBlocks.length > 0 || getAssistantErrorMessage(finalAssistant)
                   ? withAssistantBlocks(finalAssistant, finalSplit.answerBlocks)
                   : null;
 
-                const processCount = visibleProcessIndices.length + (finalProcessMessage ? 1 : 0);
-                if (processCount > 0) {
-                  const processHasError = visibleProcessIndices.some((processIdx) => {
-                    const m = messages[processIdx];
-                    return m?.role === "assistant" && Boolean(getAssistantErrorMessage(m as AssistantMessage));
-                  }) || Boolean(finalProcessMessage && getAssistantErrorMessage(finalProcessMessage));
-                  const processRefIdx = visibleProcessIndices
-                    .map((processIdx) => visibleRefIndexByMessage.get(processIdx))
-                    .find((value): value is number => typeof value === "number")
-                    ?? (finalAnswerMessage ? undefined : visibleRefIndexByMessage.get(finalAssistantIdx));
-                  const processGroup = (
-                    <ProcessDetailsGroup
-                      messageCount={processCount}
-                      t={t}
-                      hasError={processHasError}
-                      toolCallCount={countToolCalls(messages, visibleProcessIndices) + countToolCallBlocks(finalSplit.processBlocks)}
-                    >
-                      {visibleProcessIndices.map((processIdx) => renderMessage(processIdx, { attachRef: false, keyPrefix: "process" }))}
-                      {finalProcessMessage && renderMessage(finalAssistantIdx, { attachRef: false, keyPrefix: "process-final", messageOverride: finalProcessMessage, showTimestamp: false })}
-                    </ProcessDetailsGroup>
-                  );
+                let processViews: ReactNode[] = [];
+                let processToolCount = 0;
+                let processRefIdx: number | undefined;
+                let processKey = "";
+                let processHasError = false;
+                const flushProcess = () => {
+                  if (processViews.length === 0) return;
+                  const refIndex = processRefIdx;
+                  const hasError = processHasError;
                   rendered.push(
                     <div
-                      key={`process-group-${userIdx}-${finalAssistantIdx}`}
-                      ref={processRefIdx === undefined ? undefined : (el) => { messageRefs.current[processRefIdx] = el; }}
+                      key={`process-group-${processKey}`}
+                      ref={refIndex === undefined ? undefined : (el) => { messageRefs.current[refIndex] = el; }}
                     >
-                      {processGroup}
+                      <ProcessDetailsGroup messageCount={processViews.length} toolCallCount={processToolCount} hasError={hasError} t={t}>
+                        {processViews}
+                      </ProcessDetailsGroup>
                     </div>,
                   );
+                  processViews = [];
+                  processToolCount = 0;
+                  processRefIdx = undefined;
+                  processHasError = false;
+                };
+
+                // Flush each process segment before its next thinking block so
+                // reasoning stays outside the fold without reordering the turn.
+                for (let processIdx = userIdx + 1; processIdx <= finalAssistantIdx; processIdx++) {
+                  const processMessage = messages[processIdx];
+                  const messageKey = entryIds[processIdx] ?? processIdx;
+                  if (processMessage.role === "custom") {
+                    if (processViews.length === 0) processKey = String(messageKey);
+                    processViews.push(renderMessage(processIdx, { attachRef: false, keyPrefix: "process" }));
+                    continue;
+                  }
+                  if (processMessage.role !== "assistant") continue;
+                  const blocks = processIdx === finalAssistantIdx ? finalSplit.processBlocks : getDisplayableAssistantBlocks(processMessage);
+                  const groups = splitThinkingBlocks(blocks);
+                  const lastProcessGroup = groups.findLast((group) => !group.thinking);
+                  processHasError ||= Boolean(getAssistantErrorMessage(processMessage as AssistantMessage));
+                  for (const group of groups) {
+                    const blockIndex = processMessage.content.indexOf(group.blocks[0]);
+                    const key = `${messageKey}-${blockIndex}`;
+                    if (group.thinking) {
+                      flushProcess();
+                      const previousTimestamp = (messages[processIdx - 1] as AgentMessage & { timestamp?: number })?.timestamp;
+                      const messageTimestamp = (processMessage as AssistantMessage & { timestamp?: number }).timestamp;
+                      const duration = messageTimestamp && previousTimestamp
+                        ? Math.round((messageTimestamp - previousTimestamp) / 1000)
+                        : 0;
+                      const refIndex = visibleRefIndexByMessage.get(processIdx);
+                      rendered.push(
+                        <div key={`thinking-${key}`} style={{ marginBottom: 16, display: "flex", flexDirection: "column", gap: 8 }} ref={refIndex === undefined ? undefined : (el) => { messageRefs.current[refIndex] = el; }}>
+                          {group.blocks.map((block) => block.type === "thinking" && (
+                            <ThinkingBlock key={processMessage.content.indexOf(block)} block={block} blockIndex={processMessage.content.indexOf(block)} entryId={entryIds[processIdx]} sessionId={session?.id ?? sessionIdRef.current ?? undefined} duration={duration > 0 ? duration : undefined} cwd={messageCwd} onOpenFile={onOpenFile} />
+                          ))}
+                        </div>,
+                      );
+                    } else {
+                      if (processViews.length === 0) processKey = key;
+                      processRefIdx ??= visibleRefIndexByMessage.get(processIdx);
+                      processToolCount += countToolCallBlocks(group.blocks);
+                      processViews.push(renderMessage(processIdx, {
+                        attachRef: false,
+                        keyPrefix: `process-${blockIndex}`,
+                        messageOverride: withAssistantBlocks(processMessage, group.blocks, { omitUsage: processIdx === finalAssistantIdx || group !== lastProcessGroup }),
+                        showTimestamp: false,
+                      }));
+                    }
+                  }
                 }
+                flushProcess();
 
                 if (finalAnswerMessage) {
                   // Each tool call is stored as its own assistant entry, so the
@@ -1084,6 +1254,83 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
           )}
           {subagentMode !== undefined ? subagentMode.composer : chatInputElement}
         </div>
+
+      {quoteSelectionEnabled && quotedSelection && createPortal(
+        <div
+          ref={quotePopoverRef}
+          role={quoteInputOpen ? "dialog" : "toolbar"}
+          aria-label={t(quoteInputOpen ? "chat.newQuoteChat" : "chat.askSelection")}
+          style={{
+            position: "fixed",
+            top: quotedSelection.top,
+            left: quotedSelection.left,
+            zIndex: 130,
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 3,
+            width: quoteInputOpen ? "min(420px, calc(100vw - 16px))" : undefined,
+            maxWidth: "calc(100vw - 16px)",
+            maxHeight: "calc(var(--app-viewport-height, 100dvh) - 16px)",
+            overflowY: "auto",
+            padding: quoteInputOpen ? 12 : 3,
+            border: "1px solid var(--border)",
+            borderRadius: 6,
+            background: "var(--bg)",
+            boxShadow: "0 2px 10px rgba(0,0,0,0.12)",
+          }}
+        >
+          {quoteInputOpen ? (
+            <fieldset
+              disabled={quoteSubmitting}
+              aria-busy={quoteSubmitting}
+              style={{ width: "100%", minWidth: 0, margin: 0, padding: 0, border: "none", display: "flex", flexDirection: "column", gap: 10 }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 600 }}>{t("chat.askInNewChat")}</span>
+                <button type="button" className="file-viewer-icon-button" title={t("i18n.close")} aria-label={t("i18n.close")} disabled={quoteSubmitting} onClick={closeQuotedSelection} style={{ border: "none" }}>
+                  <X size={14} aria-hidden="true" />
+                </button>
+              </div>
+              <ChatInput
+                ref={quoteChatInputRef}
+                compact
+                onSend={askSelectionInNewChat}
+                onAbort={closeQuotedSelection}
+                isStreaming={false}
+              />
+              {quoteError && <div role="alert" style={{ color: "#dc2626", fontSize: 12, overflowWrap: "anywhere" }}>{quoteError}</div>}
+            </fieldset>
+          ) : <>
+          <button
+            type="button"
+            className="file-viewer-icon-button"
+            title={t("chat.askInCurrent")}
+            aria-label={t("chat.askInCurrent")}
+            onPointerDown={(event) => event.preventDefault()}
+            onClick={askSelectionHere}
+            style={{ width: "auto", height: 35, flex: "0 0 auto", gap: 5, padding: "0 10px", border: "none", fontSize: 12, fontWeight: 500 }}
+          >
+            <span aria-hidden="true" style={{ fontSize: 15 }}>@</span>
+            <span>{t("chat.askInCurrent")}</span>
+          </button>
+          {onAskInNewChat && quotedSelection.sourceEntryId && !sessionBusy && (
+            <button
+              type="button"
+              className="file-viewer-icon-button"
+              title={t("chat.askInNewChat")}
+              aria-label={t("chat.askInNewChat")}
+              onPointerDown={(event) => event.preventDefault()}
+              onClick={() => { setQuoteInputOpen(true); window.getSelection()?.removeAllRanges(); }}
+              style={{ width: "auto", height: 35, flex: "0 0 auto", gap: 5, padding: "0 10px", border: "none", fontSize: 12, fontWeight: 500 }}
+            >
+              <GitPullRequest size={13} aria-hidden="true" />
+              <span>{t("chat.askInNewChat")}</span>
+            </button>
+          )}
+          </>}
+        </div>,
+        document.body,
+      )}
         <ExtensionStatusBar statuses={visibleStatuses} widgets={footerWidgets} />
         </div>
         {isMobile ? null : (

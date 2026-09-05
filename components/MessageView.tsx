@@ -10,6 +10,7 @@ import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { getAssistantAbortDetail, getAssistantErrorMessage, isAbortedAssistantMessage, isEmptyThinkingBlock } from "@/lib/message-display";
 import { parseUnifiedPatch, type SplitDiffCell } from "@/lib/patch";
 import { isEditToolName } from "@/lib/tool-names";
+import { isThinkingExpandedByDefault, THINKING_EXPANDED_EVENT } from "@/lib/thinking-expansion-preference";
 import { TurnWrittenFiles } from "./TurnWrittenFiles";
 import type { WrittenFile } from "@/lib/turn-written-files";
 import { skillExpansionToCommand } from "@/lib/slash-display";
@@ -665,6 +666,8 @@ function AssistantMessageView({
 
   return (
     <div
+      data-message-role="assistant"
+      data-entry-id={entryId}
       style={{ marginBottom: 12 }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -819,7 +822,7 @@ function TextBlock({ block, isStreaming, cwd, onOpenFile, sessionId }: { block: 
   return <SafeMarkdownBody isStreaming={isStreaming} cwd={cwd} sessionId={sessionId} onOpenFile={onOpenFile}>{block.text}</SafeMarkdownBody>;
 }
 
-function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex, isStreaming, cwd, onOpenFile, defaultExpanded }: {
+export function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex, isStreaming, cwd, onOpenFile, defaultExpanded = false }: {
   block: ThinkingContent;
   duration?: number;
   sessionId?: string;
@@ -828,13 +831,19 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex, isStre
   isStreaming?: boolean;
   cwd?: string;
   onOpenFile?: (filePath: string) => void;
-  defaultExpanded: boolean;
+  defaultExpanded?: boolean;
 }) {
   const { t } = useI18n();
-  const [expanded, setExpanded] = useState(defaultExpanded);
+  const [expanded, setExpanded] = useState(() => defaultExpanded || isThinkingExpandedByDefault());
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onChange = () => setExpanded(isThinkingExpandedByDefault());
+    window.addEventListener(THINKING_EXPANDED_EVENT, onChange);
+    return () => window.removeEventListener(THINKING_EXPANDED_EVENT, onChange);
+  }, []);
 
   useEffect(() => {
     if (!expanded || !block.deferred || content !== null) return;

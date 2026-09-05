@@ -6,12 +6,14 @@ import {
   Archive,
   ArchiveRestore,
   Bell,
+  Brain,
   Cpu,
   Gauge,
   GlobeLock,
   Info,
   Languages,
   Layers3,
+  MessageSquare,
   Monitor,
   Moon,
   Plug,
@@ -34,6 +36,10 @@ import { PluginsConfig } from "./PluginsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 import { RemoteAccessConfig, type RemoteDraftController } from "./RemoteAccessConfig";
 import { DialogShell } from "./DialogShell";
+import {
+  isThinkingExpandedByDefault,
+  setThinkingExpandedByDefault,
+} from "@/lib/thinking-expansion-preference";
 
 type SettingsSection = "general" | "remote" | "archived" | "models" | "skills" | "plugins";
 
@@ -49,6 +55,8 @@ interface Props {
   onSoundToggle: () => void;
   tokenSpeedEnabled: boolean;
   onTokenSpeedToggle: () => void;
+  quoteSelectionEnabled: boolean;
+  onQuoteSelectionChange: (enabled: boolean) => void;
   onClose: () => void;
   onModelsChanged: () => void;
   onSessionReloaded: () => void;
@@ -81,6 +89,8 @@ export function SettingsPage({
   onSoundToggle,
   tokenSpeedEnabled,
   onTokenSpeedToggle,
+  quoteSelectionEnabled,
+  onQuoteSelectionChange,
   onClose,
   onModelsChanged,
   onSessionReloaded,
@@ -102,6 +112,11 @@ export function SettingsPage({
   const [remoteController, setRemoteController] = useState<RemoteDraftController | null>(null);
   const [discardDialogOpen, setDiscardDialogOpen] = useState(false);
   const [pendingExit, setPendingExit] = useState<(() => void) | null>(null);
+  const [thinkingExpanded, setThinkingExpanded] = useState(false);
+
+  useEffect(() => {
+    setThinkingExpanded(isThinkingExpandedByDefault());
+  }, []);
 
   const close = useCallback(() => {
     onModelsChanged();
@@ -280,6 +295,22 @@ export function SettingsPage({
           <div className="settings-form-label"><Gauge size={16} aria-hidden="true" /><div><strong>{t("settings.tokenSpeed")}</strong><span>{t("settings.tokenSpeedDescription")}</span></div></div>
           <button className="settings-switch" type="button" role="switch" aria-checked={tokenSpeedEnabled} onClick={onTokenSpeedToggle} title={t("settings.tokenSpeed")}>
             <span /><Gauge size={15} aria-hidden="true" />
+          </button>
+        </section>
+        <section className="settings-form-section">
+          <div className="settings-form-label"><Brain size={16} aria-hidden="true" /><div><strong>{t("settings.thinkingDisplay")}</strong><span>{t("settings.thinkingDisplayDescription")}</span></div></div>
+          <button className="settings-switch" type="button" role="switch" aria-checked={thinkingExpanded} onClick={() => {
+            const next = !thinkingExpanded;
+            setThinkingExpandedByDefault(next);
+            setThinkingExpanded(next);
+          }} title={t("settings.thinkingExpandedDefault")}>
+            <span /><Brain size={15} aria-hidden="true" />
+          </button>
+        </section>
+        <section className="settings-form-section">
+          <div className="settings-form-label"><MessageSquare size={16} aria-hidden="true" /><div><strong>{t("settings.chat")}</strong><span>{t("settings.quoteSelection")}</span></div></div>
+          <button className="settings-switch" type="button" role="switch" aria-checked={quoteSelectionEnabled} onClick={() => onQuoteSelectionChange(!quoteSelectionEnabled)} title={t("settings.quoteSelection")}>
+            <span /><MessageSquare size={15} aria-hidden="true" />
           </button>
         </section>
         <section className="settings-form-section">

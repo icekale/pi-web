@@ -43,6 +43,7 @@ import { BranchNavigator } from "./BranchNavigator";
 import { TaskHeader } from "./TaskHeader";
 import { DesktopConversationContext } from "./DesktopConversationContext";
 import { useTheme } from "@/hooks/useTheme";
+import { sendAgentCommand } from "@/lib/agent-client";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile, useIsWideDesktop } from "@/hooks/useIsMobile";
 import { useViewportHeight } from "@/hooks/useViewportHeight";
@@ -106,6 +107,23 @@ export function AppShell() {
   // is not mounted. ChatWindow receives the audio callbacks as props.
   const { soundEnabled, onSoundToggle, playDoneSound, unlockAudio, soundEnabledRef } = useAudio();
   const { tokenSpeedEnabled, onTokenSpeedToggle } = useTokenSpeedPreference();
+  const [quoteSelectionEnabled, setQuoteSelectionEnabled] = useState(false);
+  useEffect(() => {
+    try {
+      setQuoteSelectionEnabled(localStorage.getItem("pi-quote-selection-enabled") === "true");
+    } catch {
+      // Browser storage is best-effort.
+    }
+  }, []);
+  const handleQuoteSelectionChange = useCallback((enabled: boolean) => {
+    setQuoteSelectionEnabled(enabled);
+    try {
+      localStorage.setItem("pi-quote-selection-enabled", String(enabled));
+    } catch {
+      // Keep the current page usable when storage is unavailable.
+    }
+  }, []);
+  const [pendingQuotePrompt, setPendingQuotePrompt] = useState<{ sessionId: string; text: string } | null>(null);
   const notifiedAttentionRequestIdsRef = useRef(new Set<string>());
   const handleBackgroundTaskDone = useCallback(() => {
     if (soundEnabledRef.current) playDoneSound();
@@ -1040,6 +1058,20 @@ export function AppShell() {
       resetScroll: false,
     });
   }, [invalidateWorkspaceRestore, navigate, hydrateSelectedSession]);
+
+  const handleAskInNewChat = useCallback(async (
+    prompt: string,
+    sourceSessionId: string,
+    sourceEntryId: string,
+  ) => {
+    const result = await sendAgentCommand<{ newSessionId?: string }>(sourceSessionId, {
+      type: "fork_branch",
+      entryId: sourceEntryId,
+    });
+    if (!result?.newSessionId) throw new Error(translate("chat.quoteForkFailed"));
+    setPendingQuotePrompt({ sessionId: result.newSessionId, text: prompt });
+    handleSessionForked(result.newSessionId);
+  }, [handleSessionForked, translate]);
 
   const handleInitialRestoreDone = useCallback(() => {
     setInitialSessionRestored(true);
@@ -2282,6 +2314,10 @@ export function AppShell() {
               onSessionStatsPanelOpen={openSessionStatsPanel}
               onContextUsageChange={handleContextUsageChange}
               onOpenFile={handleOpenLinkedFile}
+              onAskInNewChat={handleAskInNewChat}
+              quoteSelectionEnabled={quoteSelectionEnabled}
+              initialPrompt={pendingQuotePrompt?.sessionId === selectedSession?.id ? pendingQuotePrompt?.text : undefined}
+              onInitialPromptConsumed={() => setPendingQuotePrompt(null)}
               subagentTreeVisible={subagentCount > 0}
               desktopAside={conversationContextModel || subagentCount > 0 ? (
                 <div className="desktop-workspace-context-stack">
@@ -2495,6 +2531,8 @@ export function AppShell() {
         onSoundToggle={onSoundToggle}
         tokenSpeedEnabled={tokenSpeedEnabled}
         onTokenSpeedToggle={onTokenSpeedToggle}
+        quoteSelectionEnabled={quoteSelectionEnabled}
+        onQuoteSelectionChange={handleQuoteSelectionChange}
         onClose={() => setSettingsOpen(false)}
         onRegisterSettingsBack={(handler) => { settingsBackHandlerRef.current = handler; }}
         onModelsChanged={() => setModelsRefreshKey((key) => key + 1)}
