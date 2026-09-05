@@ -51,6 +51,7 @@ Command-line options override the matching environment variables.
 | `--no-open` / `PI_WEB_NO_OPEN=1` | Skip opening a browser | Opens |
 | `PI_WEB_ALLOWED_HOSTS` | Extra exact proxy hostnames | Unset |
 | `PI_WEB_PASSWORD` | HTTP Basic Auth (user `pi`) | Off |
+| `PI_WEB_IDLE_TIMEOUT_MS` | Idle session shutdown; `0` disables | `600000` |
 | `PI_CODING_AGENT_DIR` | Pi data directory | `~/.pi/agent` |
 
 ```bash

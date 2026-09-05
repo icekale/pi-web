@@ -1642,6 +1642,7 @@ html.dark .codex-changes-row[data-status="conflict"] { color: #f87171; }
   min-width: 100%;
   font-size: var(--text-chat);
 }
+.markdown-table-wrap > table { width: max-content; }
 .markdown-body th, .markdown-body td {
   border: 0;
   border-bottom: 1px solid var(--border);

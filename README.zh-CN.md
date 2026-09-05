@@ -53,6 +53,7 @@ pi-web
 | `--no-open` / `PI_WEB_NO_OPEN=1` | 不自动开浏览器 | 自动打开 |
 | `PI_WEB_ALLOWED_HOSTS` | 额外精确主机名 | 未设置 |
 | `PI_WEB_PASSWORD` | HTTP Basic Auth（用户 `pi`） | 关闭 |
+| `PI_WEB_IDLE_TIMEOUT_MS` | 空闲会话关闭；`0` 关闭此行为 | `600000` |
 | `PI_CODING_AGENT_DIR` | Pi 数据目录 | `~/.pi/agent` |
 
 ```bash

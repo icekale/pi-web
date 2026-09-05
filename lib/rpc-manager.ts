@@ -113,6 +113,21 @@ const IDLE_RESET_EVENT_TYPES = new Set([
   "compaction_end",
 ]);
 
+const DEFAULT_SESSION_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
+
+export function resolveSessionIdleTimeoutMs(
+  rawValue: string | undefined = process.env.PI_WEB_IDLE_TIMEOUT_MS,
+): number {
+  if (rawValue !== undefined && rawValue.trim() !== "") {
+    const parsed = Number(rawValue);
+    if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 2_147_483_647) return parsed;
+    console.warn(`[pi-web] invalid PI_WEB_IDLE_TIMEOUT_MS "${rawValue}", falling back to 10 minutes`);
+  }
+  return DEFAULT_SESSION_IDLE_TIMEOUT_MS;
+}
+
+const SESSION_IDLE_TIMEOUT_MS = resolveSessionIdleTimeoutMs();
+
 export interface RpcSessionStartOptions {
   toolNames?: string[];
   initialModel?: { provider: string; modelId: string };
@@ -124,9 +139,9 @@ const CODING_TOOL_NAMES = CODING_BUILTIN_TOOLS;
 // Extensions require a complete Theme, while the web UI applies its own styling.
 class PlainTextTheme extends Theme {
   constructor() {
-    // ponytail: Theme 0.84.4 still falls back searchMatchText→text; add keys if ctor grows
+    // ponytail: Theme 0.85.1 still falls back missing keys; add keys if ctor grows
     super(
-      { thinkingXhigh: "", text: "" } as ConstructorParameters<typeof Theme>[0],
+      { muted: "", text: "", thinkingXhigh: "", searchMatchText: "" } as ConstructorParameters<typeof Theme>[0],
       { selectedBg: "" } as ConstructorParameters<typeof Theme>[1],
       "truecolor",
     );
@@ -501,6 +516,7 @@ export class AgentSessionWrapper {
   private resetIdleTimer(): void {
     if (this.idleTimer) clearTimeout(this.idleTimer);
     if (!this._alive) return;
+    if (SESSION_IDLE_TIMEOUT_MS === 0) return;
     if (!this.isRunning()) this.forceShutdownOnIdle = false;
     this.idleTimer = setTimeout(() => {
       if (this.isRunning() && !this.forceShutdownOnIdle) {
@@ -510,7 +526,7 @@ export class AgentSessionWrapper {
       void this.shutdown().catch((error) => {
         console.error("[pi-web] failed to shut down idle session:", error instanceof Error ? error.message : error);
       });
-    }, 10 * 60 * 1000);
+    }, SESSION_IDLE_TIMEOUT_MS);
   }
 
   private isReadonlyStatusCommand(type: string): boolean {
