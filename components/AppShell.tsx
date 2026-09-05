@@ -110,7 +110,19 @@ export function AppShell() {
   const handleBackgroundTaskDone = useCallback(() => {
     if (soundEnabledRef.current) playDoneSound();
   }, [playDoneSound, soundEnabledRef]);
-  const [selectedSession, setSelectedSession] = useState<SessionInfo | null>(null);
+  const [selectedSession, setSelectedSession] = useState<SessionInfo | null>(() => {
+    const sessionId = initialNavigation.sessionId;
+    if (!sessionId) return null;
+    return {
+      id: sessionId,
+      path: "",
+      cwd: "",
+      created: "",
+      modified: "",
+      messageCount: null,
+      firstMessage: "",
+    };
+  });
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(() => new Set());
   const handleRunningSessionIdsChange = useCallback((ids: Set<string>) => {
     setRunningSessionIds((previous) => {
@@ -537,7 +549,7 @@ export function AppShell() {
   const [activeCwd, setActiveCwd] = useState<string | null>(null);
   const activeProjectRootRef = useRef<string | null>(null);
   // True once the initial ?session= URL param has been resolved (or confirmed absent)
-  const [initialSessionRestored, setInitialSessionRestored] = useState<boolean>(() => !initialSessionId);
+  const [initialSessionRestored, setInitialSessionRestored] = useState<boolean>(() => Boolean(initialSessionId));
   // Suppresses sessionKey bump in handleCwdChange during the initial URL restore
   const suppressCwdBumpRef = useRef(false);
   // Guards the async workspace restore so a slow response from an earlier
@@ -710,6 +722,12 @@ export function AppShell() {
     // re-run the full load/positioning cycle. Only skip when the effective
     // cwd context already matches — otherwise a pending cwd move still needs
     // the full re-select flow.
+    if (isRestore && selectedSession?.id === session.id) {
+      if (session.cwd !== activeCwd) suppressCwdBumpRef.current = true;
+      setSelectedSession(session);
+      setInitialSessionRestored(true);
+      return;
+    }
     if (!isRestore && selectedSession) {
       const sameProject =
         (selectedSession.projectRoot ?? selectedSession.cwd) ===

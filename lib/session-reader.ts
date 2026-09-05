@@ -4,8 +4,9 @@ import {
   buildSessionContext as piBuildSessionContext,
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
-import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync, writeFileSync } from "fs";
+import { closeSync, existsSync, openSync, readdirSync, readSync, statSync, unlinkSync } from "fs";
 import type { Stats } from "fs";
+import { DatabaseSync } from "node:sqlite";
 import { basename, dirname, join, normalize as normalizePath } from "path";
 import type { AgentMessage, SessionEntry, SessionHeader, SessionInfo, SessionContext, SessionTreeNode } from "./types";
 import type { SessionEntry as PiSessionEntry } from "@earendil-works/pi-coding-agent";
@@ -13,7 +14,7 @@ import { extractGoalFromEntries } from "./goal-panel";
 import { normalizeToolCalls } from "./normalize";
 import { sessionPathKey } from "./paths";
 import { projectTreeForResponse } from "./project-tree";
-import { SESSION_MESSAGE_WINDOW, SESSION_WINDOW_INITIAL_BYTES, sliceSessionContext } from "./session-window";
+import { SESSION_MESSAGE_WINDOW, SESSION_WINDOW_INITIAL_BYTES, SESSION_WINDOW_MAX_BYTES, sliceSessionContext } from "./session-window";
 import { computeSessionTotalActiveMs } from "./session-timing";
 import { resolveProject, type ProjectInfo } from "./worktree";
 
@@ -51,7 +52,7 @@ export function mergeSessionLists(
   return [...byId.values()].sort((a, b) => b.modified.localeCompare(a.modified));
 }
 
-const INDEX_VERSION = 2;
+const INDEX_VERSION = 3;
 const START_SCAN_MAX_BYTES = 1024 * 1024;
 const TAIL_SCAN_MAX_BYTES = 256 * 1024;
 const FIRST_MESSAGE_MAX_CHARS = 200;
@@ -79,30 +80,121 @@ function getSessionsDir(): string {
 }
 
 function getIndexPath(): string {
+  return join(getAgentDir(), "sessions-index.sqlite");
+}
+
+function getLegacyIndexPath(): string {
   return join(getAgentDir(), "sessions-index.json");
 }
 
-function readSessionIndex(): SessionIndexState {
+type IndexFileRow = {
+  path: string;
+  size: number;
+  mtimeMs: number;
+  id: string;
+  cwd: string;
+  name: string | null;
+  created: string;
+  modified: string;
+  firstMessage: string;
+  messageCount: number | null;
+  parentSession: string | null;
+};
+
+function withSessionIndexDb<T>(fn: (db: DatabaseSync) => T): T | null {
+  let db: DatabaseSync | undefined;
   try {
-    const raw = JSON.parse(readFileSync(getIndexPath(), "utf8")) as {
-      version?: number;
-      files?: Record<string, SessionFileRecord>;
-    };
-    if (raw?.version === INDEX_VERSION && raw.files && typeof raw.files === "object") {
-      return { files: raw.files, dirty: false };
+    db = new DatabaseSync(getIndexPath());
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS meta (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS files (
+        path TEXT PRIMARY KEY,
+        size INTEGER NOT NULL,
+        mtimeMs REAL NOT NULL,
+        id TEXT NOT NULL,
+        cwd TEXT NOT NULL,
+        name TEXT,
+        created TEXT NOT NULL,
+        modified TEXT NOT NULL,
+        firstMessage TEXT NOT NULL,
+        messageCount INTEGER,
+        parentSession TEXT
+      );
+    `);
+    const version = db.prepare("SELECT value FROM meta WHERE key = 'version'").get() as { value: string } | undefined;
+    if (version?.value !== String(INDEX_VERSION)) {
+      db.exec("DELETE FROM files");
+      db.prepare("INSERT OR REPLACE INTO meta(key, value) VALUES ('version', ?)").run(String(INDEX_VERSION));
     }
+    return fn(db);
   } catch {
-    // missing or stale index is rebuilt from jsonl headers
+    return null;
+  } finally {
+    try { db?.close(); } catch { /* ignore */ }
   }
-  return { files: {}, dirty: false };
+}
+
+function recordFromRow(row: IndexFileRow): SessionFileRecord {
+  return {
+    size: row.size,
+    mtimeMs: row.mtimeMs,
+    id: row.id,
+    cwd: row.cwd,
+    ...(row.name ? { name: row.name } : {}),
+    created: row.created,
+    modified: row.modified,
+    firstMessage: row.firstMessage,
+    messageCount: row.messageCount,
+    ...(row.parentSession ? { parentSession: row.parentSession } : {}),
+  };
+}
+
+function readSessionIndex(): SessionIndexState {
+  const files = withSessionIndexDb((db) => {
+    const rows = db.prepare("SELECT * FROM files").all() as IndexFileRow[];
+    const mapped: Record<string, SessionFileRecord> = {};
+    for (const row of rows) mapped[row.path] = recordFromRow(row);
+    return mapped;
+  });
+  return { files: files ?? {}, dirty: false };
 }
 
 function writeSessionIndex(index: SessionIndexState): void {
-  try {
-    writeFileSync(getIndexPath(), JSON.stringify({ version: INDEX_VERSION, files: index.files }));
-  } catch {
-    // ponytail: listing still works without the sidecar
-  }
+  withSessionIndexDb((db) => {
+    db.exec("BEGIN");
+    try {
+      db.exec("DELETE FROM files");
+      const insert = db.prepare(`
+        INSERT INTO files (
+          path, size, mtimeMs, id, cwd, name, created, modified, firstMessage, messageCount, parentSession
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const [path, rec] of Object.entries(index.files)) {
+        insert.run(
+          path,
+          rec.size,
+          rec.mtimeMs,
+          rec.id,
+          rec.cwd,
+          rec.name ?? null,
+          rec.created,
+          rec.modified,
+          rec.firstMessage,
+          rec.messageCount,
+          rec.parentSession ?? null,
+        );
+      }
+      db.exec("COMMIT");
+    } catch (error) {
+      try { db.exec("ROLLBACK"); } catch { /* ignore */ }
+      throw error;
+    }
+    return true;
+  });
+  try { unlinkSync(getLegacyIndexPath()); } catch { /* ignore */ }
 }
 
 function collectTopLevelJsonl(): string[] {
@@ -833,6 +925,7 @@ function windowFromEntries(
     before?: string;
     leafId?: string | null;
     reachedStart: boolean;
+    hitByteCap?: boolean;
     deferThinking?: boolean;
     deferToolResultImages?: boolean;
     deferToolResults?: boolean;
@@ -842,7 +935,7 @@ function windowFromEntries(
   if (options.before && !byId.has(options.before)) {
     return { ready: false, context: EMPTY_CONTEXT, hasMore: true, leafId: null };
   }
-  if (options.leafId && !byId.has(options.leafId) && !options.reachedStart) {
+  if (options.leafId && !byId.has(options.leafId) && !options.reachedStart && !options.hitByteCap) {
     return { ready: false, context: EMPTY_CONTEXT, hasMore: true, leafId: options.leafId };
   }
   const leafId = options.leafId && byId.has(options.leafId)
@@ -860,7 +953,7 @@ function windowFromEntries(
     if (!parent) break;
     current = parent;
   }
-  if (compactionFirstKept && !byId.has(compactionFirstKept) && !options.reachedStart) {
+  if (compactionFirstKept && !byId.has(compactionFirstKept) && !options.reachedStart && !options.hitByteCap) {
     return { ready: false, context: EMPTY_CONTEXT, hasMore: true, leafId };
   }
 
@@ -874,7 +967,9 @@ function windowFromEntries(
   const firstEntry = firstId ? byId.get(firstId) : undefined;
   const hasMore = sliced.hasMore
     || (firstEntry?.type !== "compaction" && firstEntry?.parentId != null && !options.reachedStart);
-  const ready = options.reachedStart || sliced.context.messages.length >= options.limit;
+  const ready = options.reachedStart
+    || sliced.context.messages.length >= options.limit
+    || Boolean(options.hitByteCap && sliced.context.messages.length > 0 && !options.before);
   return { ready, context: sliced.context, hasMore, leafId };
 }
 
@@ -896,11 +991,14 @@ export function readSessionWindow(
   let entries = parseJsonlRange(filePath, start, fileEnd);
   while (true) {
     const reachedStart = start === 0;
+    const nextStartGuess = Math.max(0, start - SESSION_WINDOW_INITIAL_BYTES);
+    const hitByteCap = fileEnd - nextStartGuess >= SESSION_WINDOW_MAX_BYTES;
     const result = windowFromEntries(entries, {
       limit,
       before: options.before,
       leafId: options.leafId,
       reachedStart,
+      hitByteCap,
       deferThinking: options.deferThinking,
       deferToolResultImages: options.deferToolResultImages,
       deferToolResults: options.deferToolResults,
@@ -917,7 +1015,28 @@ export function readSessionWindow(
     const prev = start;
     const raw = Math.max(0, prev - SESSION_WINDOW_INITIAL_BYTES);
     start = raw === 0 ? 0 : nextLineStart(filePath, raw, prev);
-    if (start >= prev) start = 0;
+    if (start >= prev) {
+      if (!options.before && fileEnd >= SESSION_WINDOW_MAX_BYTES) {
+        const capped = windowFromEntries(entries, {
+          limit,
+          before: options.before,
+          leafId: options.leafId,
+          reachedStart: false,
+          hitByteCap: true,
+          deferThinking: options.deferThinking,
+          deferToolResultImages: options.deferToolResultImages,
+          deferToolResults: options.deferToolResults,
+        });
+        return {
+          context: capped.context,
+          hasMore: true,
+          leafId: capped.leafId,
+          tree: treeFromEntries(entries),
+          totalActiveMs: computeSessionTotalActiveMs(entries),
+        };
+      }
+      start = 0;
+    }
     entries = parseJsonlRange(filePath, start, prev).concat(entries);
   }
 }

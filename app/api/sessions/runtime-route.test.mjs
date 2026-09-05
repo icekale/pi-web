@@ -327,7 +327,7 @@ test("session listing caps firstMessage without mutating the source", async () =
   };
 
   const compact = compactSessionForList(source);
-  assert.equal(compact.firstMessage.length, 512);
+  assert.equal(compact.firstMessage.length, 200);
   assert.equal(source.firstMessage.length, 2_000);
   assert.equal(compactSessionForList({ ...source, firstMessage: "short" }).firstMessage, "short");
 });

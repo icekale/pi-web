@@ -2,6 +2,7 @@ import type { SessionContext } from "./types";
 
 export const SESSION_MESSAGE_WINDOW = 80;
 export const SESSION_WINDOW_INITIAL_BYTES = 512 * 1024;
+export const SESSION_WINDOW_MAX_BYTES = 2 * 1024 * 1024;
 
 export function parseSessionWindowParams(searchParams: URLSearchParams): {
   limit: number;
@@ -23,22 +24,67 @@ export function parseSessionWindowParams(searchParams: URLSearchParams): {
   return { limit, ...extra };
 }
 
+function historyItemKey(item: unknown): string {
+  if (!item || typeof item !== "object") return String(item);
+  const message = item as { role?: unknown; content?: unknown };
+  const role = typeof message.role === "string" ? message.role : "";
+  const content = message.content;
+  if (typeof content === "string") return `${role}:${content}`;
+  if (Array.isArray(content)) {
+    const text = content
+      .filter((block): block is { type?: unknown; text?: unknown } => !!block && typeof block === "object")
+      .filter((block) => block.type === "text" && typeof block.text === "string")
+      .map((block) => block.text)
+      .join("\n");
+    return `${role}:${text}`;
+  }
+  return role;
+}
+
+function appendUnindexedTail<T>(items: T[], unindexed: T[]): T[] {
+  if (unindexed.length === 0) return items;
+  const incomingKeys = items.map((item) => historyItemKey(item));
+  let skip = 0;
+  for (let n = Math.min(unindexed.length, items.length); n > 0; n--) {
+    const liveKeys = unindexed.slice(0, n).map((item) => historyItemKey(item));
+    const suffix = incomingKeys.slice(-n);
+    if (liveKeys.every((key, i) => key === suffix[i])) {
+      skip = n;
+      break;
+    }
+  }
+  return skip === unindexed.length ? items : [...items, ...unindexed.slice(skip)];
+}
+
 export function mergeWindowedHistory<T>(
   current: T[],
   currentIds: string[],
   incoming: T[],
   incomingIds: string[],
 ): { items: T[]; entryIds: string[] } {
-  if (currentIds.length === 0 || incomingIds.length === 0) {
-    return { items: incoming, entryIds: incomingIds };
+  if (incomingIds.length === 0) {
+    return { items: current, entryIds: currentIds };
   }
-  const incomingSet = new Set(incomingIds);
-  const overlap = currentIds.findIndex((id) => incomingSet.has(id));
-  if (overlap <= 0) return { items: incoming, entryIds: incomingIds };
-  return {
-    items: [...current.slice(0, overlap), ...incoming],
-    entryIds: [...currentIds.slice(0, overlap), ...incomingIds],
-  };
+  const unindexedTail = current.length > currentIds.length
+    ? current.slice(currentIds.length)
+    : [];
+  let items: T[];
+  let entryIds: string[];
+  if (currentIds.length === 0) {
+    items = incoming;
+    entryIds = incomingIds;
+  } else {
+    const incomingSet = new Set(incomingIds);
+    const overlap = currentIds.findIndex((id) => incomingSet.has(id));
+    if (overlap <= 0) {
+      items = incoming;
+      entryIds = incomingIds;
+    } else {
+      items = [...current.slice(0, overlap), ...incoming];
+      entryIds = [...currentIds.slice(0, overlap), ...incomingIds];
+    }
+  }
+  return { items: appendUnindexedTail(items, unindexedTail), entryIds };
 }
 
 export function sliceSessionContext(

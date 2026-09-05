@@ -8,7 +8,7 @@ import { attachSessionRelations } from "@/lib/session-relations";
 import type { SessionInfo } from "@/lib/types";
 
 
-const SESSION_LIST_FIRST_MESSAGE_CHARS = 512;
+const SESSION_LIST_FIRST_MESSAGE_CHARS = 200;
 
 export function compactSessionForList(session: SessionInfo): SessionInfo {
   if (session.firstMessage.length <= SESSION_LIST_FIRST_MESSAGE_CHARS) return session;
