@@ -341,11 +341,16 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     widget: undefined,
   });
   const sessionKey = session?.id ?? null;
+  const prevAgentRunningRef = useRef(agentRunning);
   if (planCacheRef.current.sessionId !== sessionKey) {
     planCacheRef.current = { sessionId: sessionKey, widget: conversationPlanWidget };
   } else if (conversationPlanWidget) {
     planCacheRef.current.widget = conversationPlanWidget;
+  } else if (agentRunning && !prevAgentRunningRef.current) {
+    // Next turn: drop cached rows so completed tasks from the last turn stay gone.
+    planCacheRef.current.widget = undefined;
   }
+  prevAgentRunningRef.current = agentRunning;
   const activeConversationPlanWidget = conversationPlanWidget ?? planCacheRef.current.widget;
   const subagentWidgets = visibleWidgets.filter((widget) => isPiSubagentWidgetKey(widget.key));
   const planFooterWidgets = conversationPlanWidget

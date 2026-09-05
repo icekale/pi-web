@@ -8,7 +8,7 @@ const jiti = createJiti(import.meta.url, {
   jsx: { runtime: "automatic" },
   tsconfigPaths: true,
 });
-const { ConversationPlan, getConversationPlanWidget, parseTodoWidget, shouldRequestPlanItems } = await jiti.import("./ConversationPlan.tsx");
+const { ConversationPlan, getConversationPlanWidget, parseTodoWidget, shouldRequestPlanItems, visiblePlanItems } = await jiti.import("./ConversationPlan.tsx");
 const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
 
 const widget = {
@@ -101,7 +101,8 @@ test("renders a collapsed Codex-style update plan activity by default", () => {
   assert.match(html, /aria-expanded="false"/);
   assert.match(html, /class="conversation-plan-items" data-expanded="false" aria-hidden="true"/);
   assert.match(html, /class="conversation-plan-items-content" role="list"/);
-  assert.match(html, /Inspect sidebar header/);
+  assert.doesNotMatch(html, /Inspect sidebar header/);
+  assert.match(html, /Design sidebar hierarchy/);
   assert.doesNotMatch(html, /Todos|rpiv-todos/);
 });
 
@@ -110,11 +111,11 @@ test("renders plan rows only when expanded", () => {
 
   assert.match(html, /aria-expanded="true"/);
   assert.match(html, /class="conversation-plan-items" data-expanded="true" aria-hidden="false"/);
-  assert.match(html, /Inspect sidebar header/);
+  assert.doesNotMatch(html, /Inspect sidebar header/);
   assert.match(html, /Design sidebar hierarchy/);
   assert.match(html, /designing hierarchy/);
   assert.match(html, /Implement approved header/);
-  assert.match(html, /data-status="completed"/);
+  assert.doesNotMatch(html, /data-status="completed"/);
   assert.match(html, /data-status="in_progress"/);
 });
 
@@ -157,5 +158,22 @@ test("renders summary and row status without a frozen-looking loader", () => {
   assert.match(active, /conversation-plan-active-static/);
   assert.match(active, /aria-label="Update plan: In progress, 2\/3"/);
   assert.match(active, /aria-label="In progress: Design sidebar hierarchy, designing hierarchy"/);
-  assert.match(complete, /conversation-plan-mark" data-status="completed"/);
+  assert.equal(complete, "");
+});
+
+test("hides completed and deleted rows and drops a finished plan", () => {
+  const parsed = parseTodoWidget([
+    "● Todos (2/4)",
+    "├─ ✓ Done",
+    "├─ ✗ Dropped",
+    "├─ ◐ Current (working)",
+    "└─ ○ Next",
+  ]);
+  assert.deepEqual(visiblePlanItems(parsed).map((item) => item.text), ["Current", "Next"]);
+  assert.equal(renderPlan({
+    widget: {
+      ...widget,
+      lines: ["○ Todos (1/1)", "└─ ✓ Finished"],
+    },
+  }), "");
 });

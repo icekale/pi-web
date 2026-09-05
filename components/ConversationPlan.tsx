@@ -65,6 +65,12 @@ export function parseTodoWidget(lines: string[], title?: string): TodoWidgetMode
   };
 }
 
+const OPEN_STATUSES = new Set<TodoStatus>(["pending", "in_progress"]);
+
+export function visiblePlanItems(model: TodoWidgetModel) {
+  return model.items.filter((item) => OPEN_STATUSES.has(item.status));
+}
+
 export function getConversationPlanWidget(widgets: ExtensionWidgetItem[]) {
   return widgets.find((widget) => (
     widget.key === "rpiv-todos" && parseTodoWidget(widget.lines, widget.title)
@@ -99,10 +105,12 @@ export function ConversationPlan({
   const [expanded, setExpanded] = useState(defaultExpanded);
   const model = parseTodoWidget(widget.lines, widget.title);
   if (!model) return null;
-  const summaryStatus: TodoStatus = model.items.some((item) => item.status === "in_progress")
+  const items = visiblePlanItems(model);
+  if (!model.hasOpenItems && items.length === 0) return null;
+  const summaryStatus: TodoStatus = items.some((item) => item.status === "in_progress")
     ? "in_progress"
     : model.hasOpenItems ? "pending" : "completed";
-  const hasDetails = model.items.length > 0 || Boolean(model.summary);
+  const hasDetails = items.length > 0 || Boolean(model.summary);
 
   const toggle = () => {
     if (shouldRequestPlanItems(expanded, model.items.length)) onRequestItems?.();
@@ -130,7 +138,7 @@ export function ConversationPlan({
         <div className="conversation-plan-items" data-expanded={expanded} aria-hidden={!expanded}>
           <div className="conversation-plan-items-inner">
             <div className="conversation-plan-items-content" role="list">
-              {model.items.map((item, index) => (
+              {items.map((item, index) => (
                 <div
                   className="conversation-plan-item"
                   data-status={item.status}

@@ -16,6 +16,8 @@ test("keeps recognized todos in the transcript after the agent settles", () => {
   assert.match(chat, /isPiSubagentWidgetKey/);
   assert.match(chat, /<ConversationPlan[\s\S]*?widget=\{activeConversationPlanWidget\}/);
   assert.match(chat, /activeConversationPlanWidget \? \(/);
+  assert.match(chat, /agentRunning && !prevAgentRunningRef\.current/);
+  assert.match(chat, /planCacheRef\.current\.widget = undefined/);
   assert.match(chat, /<ExtensionStatusBar[^>]*widgets=\{footerWidgets\}/);
 });
 
