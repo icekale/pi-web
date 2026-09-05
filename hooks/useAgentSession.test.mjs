@@ -415,6 +415,9 @@ test("commits the live assistant before a post-turn reload can drop it", () => {
     settleSource.indexOf("commitLiveAssistant()") < settleSource.indexOf('dispatch({ type: "end" })'),
     "settling must keep the live assistant before the stream is cleared",
   );
+  assert.doesNotMatch(agentEndSource, /loadSession\(/);
+  assert.match(loadSource, /loadSessionGenRef/);
+  assert.match(loadSource, /gen !== loadSessionGenRef\.current/);
 });
 
 test("plays the enabled sound once for each extension dialog", () => {

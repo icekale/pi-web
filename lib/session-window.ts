@@ -65,6 +65,13 @@ export function mergeWindowedHistory<T>(
   if (incomingIds.length === 0) {
     return { items: current, entryIds: currentIds };
   }
+  const lastIncomingId = incomingIds[incomingIds.length - 1];
+  const lastIncomingAt = currentIds.lastIndexOf(lastIncomingId);
+  // A slower GET that started before jsonl flushed can finish after a newer
+  // window already landed. Never replace a longer current path with that prefix.
+  if (lastIncomingAt !== -1 && lastIncomingAt < currentIds.length - 1) {
+    return { items: current, entryIds: currentIds };
+  }
   const unindexedTail = current.length > currentIds.length
     ? current.slice(currentIds.length)
     : [];

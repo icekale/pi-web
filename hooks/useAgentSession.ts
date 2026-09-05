@@ -339,6 +339,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const loadingOlderRef = useRef(false);
   const activeLeafIdRef = useRef<string | null>(null);
   const messagesRef = useRef<AgentMessage[]>([]);
+  const loadSessionGenRef = useRef(0);
   entryIdsRef.current = entryIds;
   historyHasMoreRef.current = historyHasMore;
   activeLeafIdRef.current = activeLeafId;
@@ -520,6 +521,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [messages, sessionStatsOverride, contextUsage, data?.filePath, data?.totalActiveMs, session?.id, session?.name]);
 
   const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false) => {
+    const gen = ++loadSessionGenRef.current;
     let messagesLoaded = false;
     try {
       if (showLoading) setLoading(true);
@@ -532,7 +534,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (activeLeafIdRef.current) params.set("leafId", activeLeafIdRef.current);
       const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}?${params}`);
       if (res.status === 404) {
-        if (showLoading) {
+        if (showLoading && gen === loadSessionGenRef.current) {
           setData(null);
           setActiveLeafId(null);
           replaceMessages([]);
@@ -544,7 +546,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json() as SessionData;
-      if (sessionIdRef.current !== sid) return null;
+      if (gen !== loadSessionGenRef.current || sessionIdRef.current !== sid) return null;
       textDeltaBatcher.flush();
       commitLiveAssistant();
       const incomingIds = d.context.entryIds ?? [];
@@ -573,7 +575,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         const stateRes = await fetch(`/api/sessions/${encodeURIComponent(sid)}/state`);
         if (!stateRes.ok) throw new Error(`HTTP ${stateRes.status}`);
         const agentState = await stateRes.json() as { running: boolean; state?: AgentStateResponse };
-        if (sessionIdRef.current !== sid) return null;
+        if (gen !== loadSessionGenRef.current || sessionIdRef.current !== sid) return null;
 
         const liveState = agentState.state;
         if (liveState) {
@@ -1225,7 +1227,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         const finishingLifecycleGeneration = agentLifecycleGenerationRef.current;
         const sid = sessionIdRef.current;
         if (sid) {
-          loadSession(sid);
           fetch(`/api/agent/${encodeURIComponent(sid)}`)
             .then((r) => r.json())
             .then((d: { state?: AgentStateResponse }) => {
