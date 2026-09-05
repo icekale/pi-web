@@ -28,11 +28,12 @@ import {
   CHAT_SCROLL_TAIL_TOLERANCE,
   getLiveFollowAttached,
 } from "@/lib/chat-lazy-load";
-import { SESSION_MESSAGE_WINDOW, mergeWindowedHistory } from "@/lib/session-window";
+import { SESSION_MESSAGE_WINDOW, historyItemKey, mergeWindowedHistory } from "@/lib/session-window";
 import {
   INITIAL_STREAMING_STATE,
   streamReducer,
   type ClientAssistantMessageEvent,
+  type StreamAction,
 } from "@/lib/streaming-message";
 import { createTextDeltaBatcher } from "@/lib/text-delta-batcher";
 
@@ -287,7 +288,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [entryIds, setEntryIds] = useState<string[]>([]);
   const [historyHasMore, setHistoryHasMore] = useState(false);
-  const [streamState, dispatch] = useReducer(streamReducer, INITIAL_STREAMING_STATE);
+  const [streamState, rawDispatch] = useReducer(streamReducer, INITIAL_STREAMING_STATE);
+  const streamStateRef = useRef(INITIAL_STREAMING_STATE);
+  const dispatch = useCallback((action: StreamAction) => {
+    streamStateRef.current = streamReducer(streamStateRef.current, action);
+    rawDispatch(action);
+  }, []);
   const [agentRunning, setAgentRunning] = useState(false);
   const [bashRunning, setBashRunning] = useState(false);
   const [pendingBash, setPendingBash] = useState<{ command: string; excludeFromContext: boolean } | null>(null);
@@ -336,7 +342,22 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   entryIdsRef.current = entryIds;
   historyHasMoreRef.current = historyHasMore;
   activeLeafIdRef.current = activeLeafId;
-  messagesRef.current = messages;
+  const replaceMessages = useCallback((next: AgentMessage[] | ((prev: AgentMessage[]) => AgentMessage[])) => {
+    const resolved = typeof next === "function" ? next(messagesRef.current) : next;
+    messagesRef.current = resolved;
+    setMessages(resolved);
+  }, []);
+  const commitLiveAssistant = useCallback(() => {
+    textDeltaBatcherRef.current?.flush();
+    const live = streamStateRef.current.streamingMessage;
+    if (!live?.content.length) return;
+    const normalized = normalizeToolCalls(live);
+    replaceMessages((prev) => {
+      const last = prev[prev.length - 1];
+      if (last && historyItemKey(last) === historyItemKey(normalized)) return prev;
+      return [...prev, normalized];
+    });
+  }, [replaceMessages]);
   const sessionPropIdRef = useRef<string | null>(session?.id ?? null);
   const sessionRunningRef = useRef(Boolean(sessionRunning));
   const agentRunningRef = useRef(false);
@@ -514,7 +535,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         if (showLoading) {
           setData(null);
           setActiveLeafId(null);
-          setMessages([]);
+          replaceMessages([]);
           setEntryIds([]);
           setHistoryHasMore(false);
           setError(null);
@@ -524,6 +545,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json() as SessionData;
       if (sessionIdRef.current !== sid) return null;
+      textDeltaBatcher.flush();
+      commitLiveAssistant();
       const incomingIds = d.context.entryIds ?? [];
       const merged = mergeWindowedHistory(
         messagesRef.current,
@@ -531,10 +554,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         d.context.messages,
         incomingIds,
       );
-      textDeltaBatcher.flush();
       setData(d);
       setActiveLeafId(d.leafId);
-      setMessages(merged.items);
+      replaceMessages(merged.items);
       setEntryIds(merged.entryIds);
       setHistoryHasMore(Boolean(d.hasMore));
       setCurrentModelOverride((current) => modelSwitchPendingRef.current ? current : null);
@@ -578,7 +600,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // textDeltaBatcher is a stable ref-owned instance; it must be a dependency
   // so the flush inside loadSession always sees the current instance.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [textDeltaBatcher]);
+  }, [textDeltaBatcher, commitLiveAssistant, replaceMessages]);
 
   const refreshContextUsage = useCallback((sid: string) => {
     // GET /api/agent/[id] reads a live wrapper if one exists and never starts one.
@@ -604,7 +626,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json() as { context: { messages: AgentMessage[]; entryIds: string[] }; hasMore?: boolean };
-      setMessages(d.context.messages);
+      replaceMessages(d.context.messages);
       setEntryIds(d.context.entryIds ?? []);
       setHistoryHasMore(Boolean(d.hasMore));
     } catch (e) {
@@ -636,7 +658,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         setHistoryHasMore(false);
         return 0;
       }
-      setMessages((current) => [...olderMessages, ...current]);
+      replaceMessages((current) => [...olderMessages, ...current]);
       setEntryIds((current) => [...olderIds, ...current]);
       setHistoryHasMore(Boolean(d.hasMore));
       return olderIds.length;
@@ -936,9 +958,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setAgentRunning(false);
     setAgentPhase(null);
     setRetryInfo(null);
+    commitLiveAssistant();
     dispatch({ type: "end" });
     return wasRunning;
-  }, [clearConversationPlanWidget]);
+  }, [clearConversationPlanWidget, commitLiveAssistant]);
 
   const notifyPromptStage = useCallback((runId: number) => {
     if (notifiedPromptRunIdRef.current === runId) return false;
@@ -1194,6 +1217,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         // Keep the stream open until prompt_done/agent_settled and the idle grace.
         if (!agentRunningRef.current || !acceptsPromptGeneration(event)) break;
         textDeltaBatcher.flush();
+        commitLiveAssistant();
         setAgentPhase(null);
         setRetryInfo(null);
         dispatch({ type: "end" });
@@ -1337,7 +1361,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           const deliveredKey = userMessageKey(delivered);
           const optimisticKey = optimisticUserMessageKeyRef.current;
           optimisticUserMessageKeyRef.current = null;
-          setMessages((prev) => {
+          replaceMessages((prev) => {
             const last = prev[prev.length - 1];
             if (optimisticKey && last?.role === "user" && userMessageKey(last) === optimisticKey) {
               return optimisticKey === deliveredKey
@@ -1347,7 +1371,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             return [...prev, delivered];
           });
         } else if (completed) {
-          setMessages((prev) => [...prev, normalizeToolCalls(completed)]);
+          replaceMessages((prev) => [...prev, normalizeToolCalls(completed)]);
           if (completed.role === "assistant") {
             const usage = (completed as AssistantMessage).usage;
             setContextUsage((prev) => contextUsageFromAssistant(usage, prev?.contextWindow ?? 0, completed.stopReason) ?? prev);
@@ -1438,7 +1462,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
     }
-  }, [addNotice, cancelEventStreamGrace, clearConversationPlanWidget, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, refreshContextUsage, scheduleEventStreamClose, scrollToBottom, settleUiStage]);
+  }, [addNotice, cancelEventStreamGrace, clearConversationPlanWidget, commitLiveAssistant, handleExtensionUiRequest, loadSession, notifyPromptStage, onAgentEnd, refreshContextUsage, replaceMessages, scheduleEventStreamClose, scrollToBottom, settleUiStage]);
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
@@ -1474,7 +1498,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         : message,
       timestamp: Date.now(),
     };
-    setMessages((prev) => [...prev, userMsg]);
+    replaceMessages((prev) => [...prev, userMsg]);
     optimisticUserMessageKeyRef.current = userMessageKey(userMsg);
     promptRunIdRef.current = promptRunId;
     agentLifecycleGenerationRef.current += 1;
@@ -1543,7 +1567,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         return;
       }
       rpcPromptPendingRef.current = false;
-      setMessages((prev) => {
+      replaceMessages((prev) => {
         const optimisticIndex = prev.lastIndexOf(userMsg);
         return optimisticIndex === -1
           ? prev
@@ -1565,7 +1589,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setAgentPhase(null);
       dispatch({ type: "end" });
     }
-  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, clearConversationPlanWidget, closeEvents, composerDraftKey, reconcileAgentState, restoreSubmission]);
+  }, [isNew, newSessionCwd, newSessionModel, session, ensureNewSession, ensureEventsConnected, promoteNewSession, waitForPromptSettlement, addNotice, cancelEventStreamGrace, clearConversationPlanWidget, closeEvents, composerDraftKey, reconcileAgentState, replaceMessages, restoreSubmission]);
 
   const executeBash = useCallback(async (command: string, excludeFromContext: boolean) => {
     if (agentRunningRef.current || bashRunningRef.current) return;

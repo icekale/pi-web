@@ -385,6 +385,36 @@ test("keeps one reducer-owned assistant partial and consumes Pi JSON deltas", ()
   assert.match(messageEndSource, /normalizeToolCalls\(completed\)/);
   assert.match(messageEndSource, /dispatch\(\{ type: "end" \}\)/);
   assert.doesNotMatch(messageEndSource, /streamState\.streamingMessage/);
+  assert.doesNotMatch(source, /messagesRef\.current = messages/);
+});
+
+test("commits the live assistant before a post-turn reload can drop it", () => {
+  const agentEndSource = source.slice(
+    source.indexOf('case "agent_end"'),
+    source.indexOf('case "agent_settled"'),
+  );
+  const loadSource = source.slice(
+    source.indexOf("  const loadSession = useCallback"),
+    source.indexOf("  const loadTools = useCallback"),
+  );
+  const settleSource = source.slice(
+    source.indexOf("  const settleUiStage = useCallback"),
+    source.indexOf("  const notifyPromptStage = useCallback"),
+  );
+  assert.match(source, /const commitLiveAssistant = useCallback/);
+  assert.match(source, /streamStateRef\.current\.streamingMessage/);
+  assert.ok(
+    agentEndSource.indexOf("commitLiveAssistant()") < agentEndSource.indexOf('dispatch({ type: "end" })'),
+    "agent_end must keep the live assistant in messages before clearing the stream",
+  );
+  assert.ok(
+    loadSource.indexOf("commitLiveAssistant()") < loadSource.indexOf("mergeWindowedHistory"),
+    "loadSession must merge against the live tail",
+  );
+  assert.ok(
+    settleSource.indexOf("commitLiveAssistant()") < settleSource.indexOf('dispatch({ type: "end" })'),
+    "settling must keep the live assistant before the stream is cleared",
+  );
 });
 
 test("plays the enabled sound once for each extension dialog", () => {

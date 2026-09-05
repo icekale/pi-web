@@ -24,7 +24,7 @@ export function parseSessionWindowParams(searchParams: URLSearchParams): {
   return { limit, ...extra };
 }
 
-function historyItemKey(item: unknown): string {
+export function historyItemKey(item: unknown): string {
   if (!item || typeof item !== "object") return String(item);
   const message = item as { role?: unknown; content?: unknown };
   const role = typeof message.role === "string" ? message.role : "";
