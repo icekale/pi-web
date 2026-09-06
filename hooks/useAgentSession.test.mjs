@@ -169,7 +169,9 @@ test("context usage refreshes from assistant completions and live agent state", 
     "agent_end must apply context usage before the run-generation gate",
   );
   assert.match(historyRefreshSource, /loadSession\(session\.id, false, false\)/);
-  assert.match(source, /loadSession\(session\.id, true, !opts\.readOnlyHistory\)/);
+  assert.match(source, /loadSession\(sid, true, !opts\.readOnlyHistory\)/);
+  assert.match(source, /loadedSessionIdRef/);
+  assert.match(source, /\[session\?\.id\]/);
   assert.match(source, /from "@\/lib\/conversation-context"/);
   assert.match(loadSource, /limit: String\(SESSION_MESSAGE_WINDOW\)/);
   assert.match(source, /const loadOlderHistory = useCallback/);
@@ -268,6 +270,15 @@ test("stale fresh-session completion cannot replace the active composer", () => 
     createdSource.indexOf("activeNewSessionDraftKeyRef.current !== sourceDraftKey")
       < createdSource.indexOf("setSelectedSession(session)"),
   );
+});
+
+test("switching sessions reloads without remounting ChatWindow", () => {
+  const selectSource = appShellSource.slice(
+    appShellSource.indexOf("  const handleSelectSession = useCallback"),
+    appShellSource.indexOf("  // ---- Subagent tree"),
+  );
+  assert.doesNotMatch(selectSource, /setSessionKey/);
+  assert.match(source, /if \(loadedSessionIdRef\.current === sid\) return/);
 });
 
 test("abandoned fresh-session drafts are cleared and cannot be recreated by late rejection", () => {
@@ -581,7 +592,7 @@ test("keeps prompt anchor measurement outside the React update cycle", () => {
   assert.match(anchorLifecycleEffectSource, /promptAnchorMeasureFrameRef\.current = requestAnimationFrame\(\(\) => \{\s*promptAnchorMeasureFrameRef\.current = null;\s*updatePromptAnchorSpacer\(\)/);
   assert.match(anchorLifecycleEffectSource, /disposed = true;[\s\S]*?promptAnchorUpdateRef\.current === updatePromptAnchorSpacer[\s\S]*?cancelAnimationFrame\(promptAnchorMeasureFrameRef\.current\)/);
   assert.match(anchorSyncEffectSource, /promptAnchorUpdateRef\.current\?\.\(\);\s*\}, \[streamState\.streamingMessage\]\)/);
-  assert.match(chatWindowSource, /<div ref=\{messageContentRef\} style=\{\{/);
+  assert.match(chatWindowSource, /<div ref=\{messageContentRef\}[\s\S]*?style=\{\{/);
 });
 
 test("uses the prompt anchor as the only trailing message spacer", () => {

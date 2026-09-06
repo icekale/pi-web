@@ -102,6 +102,7 @@ export function projectTreeForResponse<T extends ProjectableTreeNode<T>>(
 
   const cloneNode = (node: T, compressedEntryIds?: string[], branchPreview?: BranchPreview): T => ({
     ...node,
+    entry: { id: node.entry.id, type: node.entry.type },
     children: [],
     ...(compressedEntryIds?.length ? { compressedEntryIds } : {}),
     ...(branchPreview ? { branchPreview } : {}),

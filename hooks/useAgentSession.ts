@@ -334,6 +334,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const eventStreamGraceGenerationRef = useRef(0);
   const eventStreamGraceActiveRef = useRef(false);
   const sessionIdRef = useRef<string | null>(session?.id ?? null);
+  const loadedSessionIdRef = useRef<string | null>(null);
+  const historyRefreshSeenRef = useRef(false);
   const entryIdsRef = useRef<string[]>([]);
   const historyHasMoreRef = useRef(false);
   const loadingOlderRef = useRef(false);
@@ -2078,40 +2080,6 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   // Load session on mount
   useEffect(() => {
     sessionHookMountedRef.current = true;
-    if (session) {
-      sessionIdRef.current = session.id;
-      loadSession(session.id, true, !opts.readOnlyHistory).then((agentState) => {
-        if (agentState?.running) {
-          loadTools(session.id);
-          if (agentState.state?.isStreaming || agentState.state?.isPromptRunning) {
-            sdkAgentActiveRef.current = Boolean(agentState.state.isStreaming);
-            rpcPromptPendingRef.current = Boolean(agentState.state.isPromptRunning);
-            agentRunningRef.current = true;
-            setAgentRunning(true);
-            setAgentPhase(agentState.state.isStreaming ? { kind: "waiting_model" } : { kind: "running_command" });
-            dispatch({ type: "start" });
-            void maintainEventsConnected(session.id);
-            if (!agentState.state.isStreaming && agentState.state.isPromptRunning) {
-              void waitForPromptSettlement(session.id);
-            }
-          }
-          if (agentState.state?.isBashRunning) {
-            bashRunningRef.current = true;
-            setBashRunning(true);
-            void waitForBashSettlement(session.id);
-          }
-        }
-        if (agentState?.state) {
-          if (agentState.state.isCompacting !== undefined) setIsCompacting(agentState.state.isCompacting);
-          if (agentState.state.contextUsage !== undefined) setContextUsage(agentState.state.contextUsage ?? null);
-          if (agentState.state.systemPrompt !== undefined) setSystemPrompt(agentState.state.systemPrompt ?? null);
-          if (agentState.state.thinkingLevel !== undefined) setThinkingLevel((agentState.state.thinkingLevel as ThinkingLevelOption) ?? "auto");
-          if (agentState.state.extensionStatuses !== undefined) setExtensionStatuses(agentState.state.extensionStatuses ?? []);
-          if (agentState.state.extensionWidgets !== undefined) setExtensionWidgets(agentState.state.extensionWidgets ?? []);
-          if (agentState.state.queuedMessages !== undefined) setQueuedMessages(normalizeQueuedMessages(agentState.state.queuedMessages));
-        }
-      });
-    }
     return () => {
       sessionHookMountedRef.current = false;
       const abandonedDraftKey = isNew ? newSessionDraftKey : null;
@@ -2134,10 +2102,98 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    const sid = session?.id ?? null;
+    if (loadedSessionIdRef.current === sid) return;
+    const previousId = loadedSessionIdRef.current;
+    loadedSessionIdRef.current = sid;
+    historyRefreshSeenRef.current = false;
+    initialScrollDoneRef.current = false;
+
+    if (previousId) {
+      closeEvents();
+      cancelEventStreamGrace();
+      textDeltaBatcher.flush();
+      bashRecoveryIdRef.current += 1;
+      sdkAgentActiveRef.current = false;
+      rpcPromptPendingRef.current = false;
+      agentRunningRef.current = false;
+      bashRunningRef.current = false;
+      setAgentRunning(false);
+      setBashRunning(false);
+      setAgentPhase(null);
+      setRetryInfo(null);
+      setIsCompacting(false);
+      setCompactError(null);
+      setCompactResult(null);
+      setContextUsage(null);
+      setSystemPrompt(null);
+      setExtensionStatuses([]);
+      setExtensionWidgets([]);
+      setQueuedMessages({ steering: [], followUp: [] });
+      setForkingEntryId(null);
+      setCurrentModelOverride(null);
+      setPendingModel(null);
+      dispatch({ type: "end" });
+    }
+
+    if (!sid) {
+      sessionIdRef.current = null;
+      activeLeafIdRef.current = null;
+      setData(null);
+      setActiveLeafId(null);
+      replaceMessages([]);
+      setEntryIds([]);
+      setHistoryHasMore(false);
+      setLoading(false);
+      return;
+    }
+
+    sessionIdRef.current = sid;
+    activeLeafIdRef.current = null;
+    setActiveLeafId(null);
+    replaceMessages([]);
+    setEntryIds([]);
+    setHistoryHasMore(false);
+
+    void loadSession(sid, true, !opts.readOnlyHistory).then((agentState) => {
+      if (sessionIdRef.current !== sid) return;
+      if (agentState?.running) {
+        loadTools(sid);
+        if (agentState.state?.isStreaming || agentState.state?.isPromptRunning) {
+          sdkAgentActiveRef.current = Boolean(agentState.state.isStreaming);
+          rpcPromptPendingRef.current = Boolean(agentState.state.isPromptRunning);
+          agentRunningRef.current = true;
+          setAgentRunning(true);
+          setAgentPhase(agentState.state.isStreaming ? { kind: "waiting_model" } : { kind: "running_command" });
+          dispatch({ type: "start" });
+          void maintainEventsConnected(sid);
+          if (!agentState.state.isStreaming && agentState.state.isPromptRunning) {
+            void waitForPromptSettlement(sid);
+          }
+        }
+        if (agentState.state?.isBashRunning) {
+          bashRunningRef.current = true;
+          setBashRunning(true);
+          void waitForBashSettlement(sid);
+        }
+      }
+      if (agentState?.state) {
+        if (agentState.state.isCompacting !== undefined) setIsCompacting(agentState.state.isCompacting);
+        if (agentState.state.contextUsage !== undefined) setContextUsage(agentState.state.contextUsage ?? null);
+        if (agentState.state.systemPrompt !== undefined) setSystemPrompt(agentState.state.systemPrompt ?? null);
+        if (agentState.state.thinkingLevel !== undefined) setThinkingLevel((agentState.state.thinkingLevel as ThinkingLevelOption) ?? "auto");
+        if (agentState.state.extensionStatuses !== undefined) setExtensionStatuses(agentState.state.extensionStatuses ?? []);
+        if (agentState.state.extensionWidgets !== undefined) setExtensionWidgets(agentState.state.extensionWidgets ?? []);
+        if (agentState.state.queuedMessages !== undefined) setQueuedMessages(normalizeQueuedMessages(agentState.state.queuedMessages));
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.id]);
+
   // Read-only history mode: reload the persisted session context whenever the
   // subagent tree snapshot advances. This path never fetches the live agent
   // state, never connects child SSE, and never starts a child runtime.
-  const historyRefreshSeenRef = useRef(false);
   useEffect(() => {
     if (!opts.readOnlyHistory || !session?.id || opts.historyRefreshGeneration === undefined) return;
     if (!historyRefreshSeenRef.current) {

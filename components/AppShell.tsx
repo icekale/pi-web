@@ -652,12 +652,9 @@ export function AppShell() {
           clearLastOpen(projectKey);
           return;
         }
-        // Selecting the session must remount the chat with the session
-        // present: useAgentSession loads content in a mount-only effect, so
-        // the null-session welcome mount from the switch would never load
-        // the restored session's messages.
+        // Selecting the session is enough: useAgentSession reloads when
+        // session.id changes, so the welcome composer does not need a remount.
         setSelectedSession(s);
-        setSessionKey((k) => k + 1);
         if (new URLSearchParams(window.location.search).get("session") !== s.id) {
           void navigate({
             to: "/",
@@ -760,7 +757,6 @@ export function AppShell() {
     if (session.cwd !== activeCwd) suppressCwdBumpRef.current = true;
     setNewSessionCwd(null);
     setSelectedSession(session);
-    setSessionKey((k) => k + 1);
     setSystemPrompt(null);
     setInitialSessionRestored(true);
     // On mobile, collapse the overlay drawer so the chat is revealed after pick.
@@ -797,8 +793,15 @@ export function AppShell() {
   });
   const [rootSessionInfo, setRootSessionInfo] = useState<SessionInfo | null>(null);
   useEffect(() => {
+    if (!selectedRootId) {
+      setRootSessionInfo(null);
+      return;
+    }
+    if (selectedSession?.id === selectedRootId) {
+      setRootSessionInfo(selectedSession);
+      return;
+    }
     setRootSessionInfo(null);
-    if (!selectedRootId) return;
     void fetch("/api/sessions", { cache: "no-store" })
       .then((response) => (response.ok ? response.json() as Promise<{ sessions: SessionInfo[] }> : null))
       .then((data) => {
@@ -806,7 +809,7 @@ export function AppShell() {
         if (root) setRootSessionInfo(root);
       })
       .catch(() => {});
-  }, [selectedRootId]);
+  }, [selectedRootId, selectedSession]);
 
   const resolveSessionById = useCallback(async (sessionId: string): Promise<SessionInfo | null> => {
     const response = await fetch("/api/sessions", { cache: "no-store" });

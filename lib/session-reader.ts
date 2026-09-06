@@ -973,6 +973,21 @@ function windowFromEntries(
   return { ready, context: sliced.context, hasMore, leafId };
 }
 
+const WINDOW_ENTRY_CACHE_LIMIT = 4;
+const windowEntryCache = new Map<string, { mtimeMs: number; byId: Map<string, SessionEntry> }>();
+
+function rememberWindowEntries(filePath: string, mtimeMs: number, entries: SessionEntry[]) {
+  const byId = new Map<string, SessionEntry>();
+  for (const entry of entries) byId.set(entry.id, entry);
+  if (windowEntryCache.has(filePath)) windowEntryCache.delete(filePath);
+  windowEntryCache.set(filePath, { mtimeMs, byId });
+  while (windowEntryCache.size > WINDOW_ENTRY_CACHE_LIMIT) {
+    const oldest = windowEntryCache.keys().next().value;
+    if (oldest === undefined) break;
+    windowEntryCache.delete(oldest);
+  }
+}
+
 export function readSessionWindow(
   filePath: string,
   options: {
@@ -1004,6 +1019,7 @@ export function readSessionWindow(
       deferToolResults: options.deferToolResults,
     });
     if (result.ready || reachedStart) {
+      rememberWindowEntries(filePath, st.mtimeMs, entries);
       return {
         context: result.context,
         hasMore: result.hasMore,
@@ -1027,6 +1043,7 @@ export function readSessionWindow(
           deferToolResultImages: options.deferToolResultImages,
           deferToolResults: options.deferToolResults,
         });
+        rememberWindowEntries(filePath, st.mtimeMs, entries);
         return {
           context: capped.context,
           hasMore: true,
@@ -1043,6 +1060,11 @@ export function readSessionWindow(
 
 export function findSessionEntry(filePath: string, entryId: string): SessionEntry | undefined {
   const st = statSync(filePath);
+  const cached = windowEntryCache.get(filePath);
+  if (cached && cached.mtimeMs === st.mtimeMs) {
+    const hit = cached.byId.get(entryId);
+    if (hit) return hit;
+  }
   let end = st.size;
   let start = Math.max(0, end - SESSION_WINDOW_INITIAL_BYTES);
   while (true) {
