@@ -61,7 +61,8 @@ test("project sorting supports drag and keyboard-accessible menu actions", () =>
   assert.match(sidebar, /draggable=\{!renamingProject\}/);
   assert.match(sidebar, /onDrop=\{\(\) => reorderProject\(project\.path\)\}/);
   assert.match(sidebar, /role="menuitem"/);
-  assert.match(sidebar, /event\.key !== "Enter" && event\.key !== " "/);
+  assert.match(sidebar, /type="button"\s+className="codex-project-main"/);
+  assert.match(sidebar, /<button type="button" className="codex-session-main"/);
 });
 
 test("session delete skips the confirmation dialog and reports errors inline", () => {
@@ -69,7 +70,7 @@ test("session delete skips the confirmation dialog and reports errors inline", (
   assert.match(sidebar, /setDeleteError\(null\); void remove\(\)/);
   assert.match(sidebar, /className="codex-row-error"/);
   assert.match(sidebar, /role="alert"/);
-  assert.match(styles, /\.codex-row-error \{[^}]*color: var\(--danger\)|#ef4444|rgba\(239,68,68/);
+  assert.match(styles, /\.codex-row-error \{[^}]*color: var\(--error\)/);
 });
 
 test("keeps the file explorer out of the project sidebar", () => {

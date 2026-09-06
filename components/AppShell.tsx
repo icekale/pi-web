@@ -1280,11 +1280,11 @@ export function AppShell() {
           minHeight: mobileBanner ? 32 : undefined,
           height: mobileBanner ? undefined : "100%",
           padding: mobileBanner ? "6px 12px" : "0 12px",
-          background: mobileBanner ? "color-mix(in srgb, #d97706 8%, var(--bg-panel))" : "none",
+          background: mobileBanner ? "color-mix(in srgb, var(--warning) 8%, var(--bg-panel))" : "none",
           border: "none",
           borderRight: mobileBanner ? "none" : "1px solid var(--border)",
           borderBottom: mobileBanner ? "1px solid var(--border)" : "none",
-          color: "#d97706",
+          color: "var(--warning)",
           cursor: "pointer",
           flexShrink: 0,
           fontSize: "var(--text-meta)",
@@ -1426,7 +1426,7 @@ export function AppShell() {
                 background: "none", border: "none",
                 borderTop: "2px solid transparent",
                 borderRight: "1px solid var(--border)",
-                color: isError ? "#dc2626" : isSuccess ? "var(--accent)" : disabled ? "var(--text-dim)" : "var(--text-muted)",
+                color: isError ? "var(--error)" : isSuccess ? "var(--accent)" : disabled ? "var(--text-dim)" : "var(--text-muted)",
                 cursor: disabled ? "not-allowed" : "pointer",
                 opacity: disabled && autoNameStatus.kind !== "naming" ? 0.45 : 1,
                 flexShrink: 0, fontSize: "var(--text-meta)", whiteSpace: "nowrap",
@@ -1434,11 +1434,11 @@ export function AppShell() {
               }}
               onMouseEnter={(event) => {
                 if (disabled) return;
-                event.currentTarget.style.color = isError ? "#dc2626" : "var(--text)";
+                event.currentTarget.style.color = isError ? "var(--error)" : "var(--text)";
                 event.currentTarget.style.background = "var(--bg-hover)";
               }}
               onMouseLeave={(event) => {
-                event.currentTarget.style.color = isError ? "#dc2626" : isSuccess ? "var(--accent)" : disabled ? "var(--text-dim)" : "var(--text-muted)";
+                event.currentTarget.style.color = isError ? "var(--error)" : isSuccess ? "var(--accent)" : disabled ? "var(--text-dim)" : "var(--text-muted)";
                 event.currentTarget.style.background = "none";
               }}
               data-mobile-toolbar-action={mobile ? "name" : undefined}
@@ -1543,8 +1543,8 @@ export function AppShell() {
     let desktopContextText: string | null = null;
     if (contextUsage?.contextWindow) {
       const percent = contextUsage.percent;
-      if (percent !== null && percent > 90) contextColor = "#ef4444";
-      else if (percent !== null && percent > 70) contextColor = "rgba(234,179,8,0.95)";
+      if (percent !== null && percent > 90) contextColor = "var(--error)";
+      else if (percent !== null && percent > 70) contextColor = "var(--warning)";
       desktopContextText = percent !== null
         ? `${percent.toFixed(0)}% / ${formatCompact(contextUsage.contextWindow)}`
         : `? / ${formatCompact(contextUsage.contextWindow)}`;
@@ -1770,6 +1770,7 @@ export function AppShell() {
     `}</style>
     <div style={{
       display: "flex",
+      position: "relative",
       width: "100%",
       height: "var(--app-viewport-height, 100dvh)",
       paddingLeft: "env(safe-area-inset-left)",
@@ -1777,6 +1778,7 @@ export function AppShell() {
       overflow: "hidden",
       background: "var(--bg)",
     }}>
+      <a className="skip-to-chat" href="#conversation">{translate("layout.skipToChat")}</a>
       {/* Mobile overlay backdrop */}
       <div
         className={`sidebar-overlay-backdrop${mobileSidebarReady ? "" : " sidebar-mobile-pending"}`}
@@ -1793,9 +1795,10 @@ export function AppShell() {
       />
 
       {/* Left sidebar */}
-      <div
+      <nav
         ref={sidebarResizer.panelRef}
         id="session-sidebar"
+        aria-label={translate("sidebar.nav")}
         className={`sidebar-container${sidebarOpen ? " sidebar-open" : " sidebar-closed"}${mobileSidebarReady ? "" : " sidebar-mobile-pending"}${sidebarResizer.isResizing ? " sidebar-resizing" : ""}`}
         onPointerDown={handleDrawerPointerDown}
         onPointerMove={handleDrawerPointerMove}
@@ -1822,7 +1825,7 @@ export function AppShell() {
         } as React.CSSProperties}
       >
         {sidebarContent}
-      </div>
+      </nav>
       {sidebarOpen && (
         <div
           {...sidebarResizer.separatorProps}
@@ -2285,7 +2288,7 @@ export function AppShell() {
         </div>
 
         {/* Chat content */}
-        <div className="app-center-column" style={{ flex: 1, overflow: "hidden", position: "relative" }}>
+        <main id="conversation" className="app-center-column" tabIndex={-1} style={{ flex: 1, overflow: "hidden", position: "relative" }}>
           {showChat ? (
             <>
               {childSelected && selectedSession && subagents.data ? (
@@ -2392,7 +2395,7 @@ export function AppShell() {
               role="alert"
               style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, padding: 24, color: "var(--text-muted)", textAlign: "center" }}
             >
-               <div style={{ fontSize: "var(--text-title)", color: "#dc2626" }}>{translate("workspace.unable")}</div>
+               <div style={{ fontSize: "var(--text-title)", color: "var(--error)" }}>{translate("workspace.unable")}</div>
               <div style={{ maxWidth: "min(720px, 100%)", overflowWrap: "anywhere", fontFamily: "var(--font-mono)", fontSize: "var(--text-meta)" }}>
                 {initialNavigation.requestedCwd}
               </div>
@@ -2416,7 +2419,7 @@ export function AppShell() {
               </div>
             )
           ) : null}
-        </div>
+        </main>
       </div>
 
       <div

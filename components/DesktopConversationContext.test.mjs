@@ -58,7 +58,7 @@ test("uses an alert tone near the context limit", () => {
       onOpenDetails() {},
     }),
   ));
-  assert.match(html, /--context-tone:#dc2626/);
+  assert.match(html, /--context-tone:var\(--error\)/);
 });
 
 test("pulls the context card toward the transcript only on roomy desktops", () => {

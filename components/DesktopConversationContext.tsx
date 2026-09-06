@@ -8,8 +8,8 @@ interface Props {
 }
 
 function getContextTone(percent: number | null) {
-  if (percent !== null && percent >= 95) return "#dc2626";
-  if (percent !== null && percent >= 80) return "#d97706";
+  if (percent !== null && percent >= 95) return "var(--error)";
+  if (percent !== null && percent >= 80) return "var(--warning)";
   return "var(--accent)";
 }
 

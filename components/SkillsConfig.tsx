@@ -186,7 +186,7 @@ function SkillDetail({
             </span>
           )}
           {saveError && (
-            <span style={{ fontSize: "var(--text-meta)", color: "#f87171", overflowWrap: "anywhere" }}>
+            <span style={{ fontSize: "var(--text-meta)", color: "var(--error)", overflowWrap: "anywhere" }}>
               {saveError}
             </span>
           )}
@@ -277,7 +277,7 @@ function SkillDetail({
                 style={{
                   fontFamily: "var(--font-mono)",
                   fontSize: "var(--text-meta)",
-                  color: "#d97706",
+                  color: "var(--warning)",
                 }}
               >
                 {shortVersion(updateStatus.latestVersion)}
@@ -291,9 +291,9 @@ function SkillDetail({
                   color: checkingUpdate
                     ? "var(--accent)"
                     : updateStatus?.state === "up-to-date"
-                      ? "#16a34a"
+                      ? "var(--ok)"
                       : updateStatus?.state === "error"
-                          ? "#ef4444"
+                          ? "var(--error)"
                           : "var(--text-dim)",
                 }}
               >
@@ -327,7 +327,7 @@ function SkillDetail({
             )}
           </div>
           {updateError && (
-            <span style={{ fontSize: "var(--text-meta)", color: "#ef4444" }}>{updateError}</span>
+            <span style={{ fontSize: "var(--text-meta)", color: "var(--error)" }}>{updateError}</span>
           )}
         </div>
       )}
@@ -561,11 +561,11 @@ function AddSkillPanel({
 
         {/* Errors */}
         {searchError && (
-          <div style={{ fontSize: "var(--text-meta)", color: "#f87171" }}>{searchError}</div>
+          <div style={{ fontSize: "var(--text-meta)", color: "var(--error)" }}>{searchError}</div>
         )}
         {installError && (
           <div
-            style={{ fontSize: "var(--text-meta)", color: "#f87171", wordBreak: "break-word" }}
+            style={{ fontSize: "var(--text-meta)", color: "var(--error)", wordBreak: "break-word" }}
           >
             {installError}
           </div>
@@ -668,7 +668,7 @@ function AddSkillPanel({
                         : "pointer",
                     background: isInstalled ? "rgba(34,197,94,0.1)" : "none",
                     color: isInstalled
-                      ? "#16a34a"
+                      ? "var(--ok)"
                       : isInstalling
                         ? "var(--accent)"
                         : "var(--text-muted)",

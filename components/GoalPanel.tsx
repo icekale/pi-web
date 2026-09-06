@@ -5,10 +5,10 @@ import { useI18n } from "@/hooks/useI18n";
 import type { GoalEditMode, GoalPanelModel, GoalPanelStatus } from "@/lib/goal-panel";
 
 const STATUS_COLORS: Record<GoalPanelStatus, string> = {
-  active: "#10b981",
-  paused: "#d97706",
-  blocked: "#ea580c",
-  budget_limited: "#ef4444",
+  active: "var(--ok)",
+  paused: "var(--warning)",
+  blocked: "var(--error)",
+  budget_limited: "var(--error)",
   complete: "var(--text-dim)",
   unknown: "var(--text-muted)",
 };

@@ -288,7 +288,7 @@ export function DirectoryPicker({ onCancel, onSelect, busy = false, error }: Pro
           ) : (
             <div style={{ padding: 8, color: "var(--text-dim)", fontSize: "var(--text-meta)" }}>{t("directoryPicker.noSubdirectories")}</div>
           )}
-          {(loadError || error) && <div role="alert" style={{ padding: "8px", color: "#dc2626", fontSize: "var(--text-meta)" }}>{loadError ?? error}</div>}
+          {(loadError || error) && <div role="alert" style={{ padding: "8px", color: "var(--error)", fontSize: "var(--text-meta)" }}>{loadError ?? error}</div>}
         </div>
     </DialogShell>,
     portalTarget,

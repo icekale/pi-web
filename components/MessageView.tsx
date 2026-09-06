@@ -331,7 +331,7 @@ function UserMessageView({ message, cwd, onOpenFile, sessionId, entryId, onFork,
           <ImagePreview key={i} src={src}>
             <img
               src={src}
-              alt=""
+              alt={t("chat.attachedImage", { n: i + 1 })}
               style={{ maxWidth: 240, maxHeight: 240, borderRadius: 6, objectFit: "contain", display: "block", border: "1px solid rgba(59,130,246,0.15)" }}
             />
           </ImagePreview>
@@ -723,7 +723,7 @@ function AssistantMessageView({
             border: "1px solid rgba(239,68,68,0.3)",
             borderRadius: 6,
             background: "rgba(239,68,68,0.07)",
-            color: "#ef4444",
+            color: "var(--error)",
             fontFamily: "var(--font-mono)",
             fontSize: "var(--text-meta)",
             lineHeight: "var(--leading-prose)",
@@ -893,7 +893,7 @@ export function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex,
         )}
       </button>
       {expanded && (
-        <div style={{ padding: "8px 10px", color: error ? "#f87171" : "var(--text-muted)", fontSize: "var(--text-meta)", background: "var(--bg-panel)", borderTop: "1px solid var(--border)" }}>
+        <div style={{ padding: "8px 10px", color: error ? "var(--error)" : "var(--text-muted)", fontSize: "var(--text-meta)", background: "var(--bg-panel)", borderTop: "1px solid var(--border)" }}>
           {loading || error ? (
             loading ? t("i18n.loadingThinking") : error
           ) : (
@@ -1000,11 +1000,11 @@ function ToolCallBlock({ block, result, duration, defaultExpanded, isStreaming, 
             <Minus size={11} strokeWidth={2} aria-hidden="true" style={{ flexShrink: 0, color: "var(--text-dim)" }} />
           )
         ) : isError ? (
-          <X size={11} strokeWidth={2.2} aria-hidden="true" style={{ flexShrink: 0, color: "#f87171" }} />
+          <X size={11} strokeWidth={2.2} aria-hidden="true" style={{ flexShrink: 0, color: "var(--error)" }} />
         ) : (
-          <Check size={11} strokeWidth={2.2} aria-hidden="true" style={{ flexShrink: 0, color: "#16a34a" }} />
+          <Check size={11} strokeWidth={2.2} aria-hidden="true" style={{ flexShrink: 0, color: "var(--ok)" }} />
         )}
-        <span style={{ color: isError ? "#f87171" : "#16a34a", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: "var(--text-meta)", flexShrink: 0 }}>
+        <span style={{ color: isError ? "var(--error)" : "var(--ok)", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: "var(--text-meta)", flexShrink: 0 }}>
           {block.toolName}
         </span>
         <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: "var(--text-meta)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
@@ -1042,7 +1042,7 @@ function ToolCallBlock({ block, result, duration, defaultExpanded, isStreaming, 
           {t("i18n.loadingToolResult")}
         </div>
       ) : resultError ? (
-        <div style={{ padding: "8px 10px", color: "#f87171", fontSize: "var(--text-meta)", background: "var(--bg-panel)", borderTop: "1px solid var(--border)" }} role="alert">
+        <div style={{ padding: "8px 10px", color: "var(--error)", fontSize: "var(--text-meta)", background: "var(--bg-panel)", borderTop: "1px solid var(--border)" }} role="alert">
           {resultError}
         </div>
       ) : effectiveResult && (
@@ -1167,7 +1167,7 @@ function SplitDiffCellView({ cell, side }: { cell: SplitDiffCell; side: "left" |
   const marker =
     cell.type === "added" ? "+" : cell.type === "removed" ? "-" : " ";
   const markerColor =
-    cell.type === "added" ? "#22c55e" : cell.type === "removed" ? "#f87171" : "var(--text-dim)";
+    cell.type === "added" ? "var(--ok)" : cell.type === "removed" ? "var(--error)" : "var(--text-dim)";
 
   return (
     <div
@@ -1237,8 +1237,8 @@ function PatchTextView({ text }: { text: string }) {
           kind === "hunk" ? "rgba(96,165,250,0.12)" :
           "transparent";
         const color =
-          kind === "added" ? "#22c55e" :
-          kind === "removed" ? "#f87171" :
+          kind === "added" ? "var(--ok)" :
+          kind === "removed" ? "var(--error)" :
           kind === "hunk" ? "var(--accent)" :
           "var(--text)";
 
@@ -1249,9 +1249,9 @@ function PatchTextView({ text }: { text: string }) {
               display: "flex",
               background: bg,
               borderLeft: kind === "added"
-                ? "3px solid #22c55e"
+                ? "3px solid var(--ok)"
                 : kind === "removed"
-                ? "3px solid #f87171"
+                ? "3px solid var(--error)"
                 : kind === "hunk"
                 ? "3px solid var(--accent)"
                 : "3px solid transparent",
@@ -1315,7 +1315,7 @@ function PairedResult({ text, isEmpty, isError }: {
         style={{
           margin: 0,
           padding: "8px 10px",
-          color: isError ? "#f87171" : (isEmpty ? "var(--text-dim)" : "var(--text-muted)"),
+          color: isError ? "var(--error)" : (isEmpty ? "var(--text-dim)" : "var(--text-muted)"),
           fontSize: "var(--text-ui)",
           lineHeight: "var(--leading-prose)",
           overflow: "auto",
@@ -1477,7 +1477,7 @@ function CustomMessageView({ message, cwd, onOpenFile, sessionId }: { message: C
                     <ImagePreview key={i} src={src}>
                       <img
                         src={src}
-                        alt=""
+                        alt={t("chat.attachedImage", { n: i + 1 })}
                         style={{ maxWidth: 240, maxHeight: 240, borderRadius: 6, objectFit: "contain", display: "block", border: "1px solid var(--border)" }}
                       />
                     </ImagePreview>

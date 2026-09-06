@@ -840,41 +840,23 @@ export function CodexSidebar({
                 }}
               >
                 <div className="codex-project-row" data-selected={selected}>
-                  <div
-                    className="codex-project-main"
-                    title={project.path}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => {
-                      setSelectedCwd(project.path);
-                      setCollapsed((current) => { const next = new Set(current); next.has(project.path) ? next.delete(project.path) : next.add(project.path); return next; });
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key !== "Enter" && event.key !== " ") return;
-                      event.preventDefault();
-                      setSelectedCwd(project.path);
-                      setCollapsed((current) => { const next = new Set(current); next.has(project.path) ? next.delete(project.path) : next.add(project.path); return next; });
-                    }}
-                  >
+                  {renamingProject === project.path ? (
+                  <div className="codex-project-main" title={project.path}>
                     <Chevron open={open} />
                     <FolderIcon />
-                    {renamingProject === project.path ? (
-                      <input
-                        className="codex-project-rename"
-                        value={renameValue}
-                        autoFocus
-                        onClick={(event) => event.stopPropagation()}
-                        onChange={(event) => setRenameValue(event.target.value)}
-                        onBlur={() => { updateProject(project.path, { name: renameValue.trim() || undefined }); setRenamingProject(null); }}
-                        onKeyDown={(event) => {
-                          event.stopPropagation();
-                          if (event.key === "Enter") event.currentTarget.blur();
-                          if (event.key === "Escape") setRenamingProject(null);
-                        }}
-                      />
-                    ) : (
-                      <span className="codex-project-name">{project.name ?? projectName(project.path)}</span>
-                    )}
+                    <input
+                      className="codex-project-rename"
+                      value={renameValue}
+                      autoFocus
+                      onClick={(event) => event.stopPropagation()}
+                      onChange={(event) => setRenameValue(event.target.value)}
+                      onBlur={() => { updateProject(project.path, { name: renameValue.trim() || undefined }); setRenamingProject(null); }}
+                      onKeyDown={(event) => {
+                        event.stopPropagation();
+                        if (event.key === "Enter") event.currentTarget.blur();
+                        if (event.key === "Escape") setRenamingProject(null);
+                      }}
+                    />
                     {project.pinned && (
                       <span className="codex-project-pin" title={t("sidebar.pinned")}>
                         <Pin size={12} aria-hidden="true" />
@@ -887,6 +869,32 @@ export function CodexSidebar({
                     )}
                     {unreadCount > 0 && <span className="codex-project-unread" title={t("sidebar.newActivity")}>{unreadCount}</span>}
                   </div>
+                  ) : (
+                  <button
+                    type="button"
+                    className="codex-project-main"
+                    title={project.path}
+                    onClick={() => {
+                      setSelectedCwd(project.path);
+                      setCollapsed((current) => { const next = new Set(current); next.has(project.path) ? next.delete(project.path) : next.add(project.path); return next; });
+                    }}
+                  >
+                    <Chevron open={open} />
+                    <FolderIcon />
+                    <span className="codex-project-name">{project.name ?? projectName(project.path)}</span>
+                    {project.pinned && (
+                      <span className="codex-project-pin" title={t("sidebar.pinned")}>
+                        <Pin size={12} aria-hidden="true" />
+                      </span>
+                    )}
+                    {runningCount > 0 && (
+                      <span className="codex-project-running" title={t("sidebar.agentRunning")} aria-label={t("sidebar.agentRunning")} role="status">
+                        <LoaderCircle size={12} strokeWidth={1.8} style={{ animation: "spin 0.8s linear infinite" }} aria-hidden="true" />
+                      </span>
+                    )}
+                    {unreadCount > 0 && <span className="codex-project-unread" title={t("sidebar.newActivity")}>{unreadCount}</span>}
+                  </button>
+                  )}
                   <IconButton label={t("sidebar.newSessionTitle", { path: project.path })} onClick={(event) => { event.stopPropagation(); createSession(project.path); }}>
                     <Plus size={14} strokeWidth={2.2} aria-hidden="true" />
                   </IconButton>
@@ -1172,18 +1180,8 @@ function SessionRow({ session, selected, running, runningSubagentCount, unread, 
   return (
     <>
     <div className={`codex-session-row${isRecent ? " codex-recent-session-row" : ""}`} data-selected={selected} onContextMenu={renaming ? undefined : openContextMenu}>
-      <div
-        className="codex-session-main"
-        onClick={onSelect}
-        onKeyDown={(event) => {
-          if (event.key !== "Enter" && event.key !== " ") return;
-          event.preventDefault();
-          onSelect();
-        }}
-        role="button"
-        tabIndex={0}
-        title={rowTitle}
-      >
+      {renaming ? (
+      <div className="codex-session-main" title={rowTitle}>
         {running ? (
           <LoaderCircle
             className="codex-session-running"
@@ -1196,16 +1194,14 @@ function SessionRow({ session, selected, running, runningSubagentCount, unread, 
         ) : (
           <span className="codex-session-state" data-unread={unread} />
         )}
-        {renaming ? (
-          <input
-            value={value}
-            autoFocus
-            onClick={(event) => event.stopPropagation()}
-            onChange={(event) => setValue(event.target.value)}
-            onBlur={() => void commitRename()}
-            onKeyDown={(event) => { event.stopPropagation(); if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setRenaming(false); }}
-          />
-        ) : <span className={`codex-session-title${isRecent ? " codex-recent-session-title" : ""}`}>{title}</span>}
+        <input
+          value={value}
+          autoFocus
+          onClick={(event) => event.stopPropagation()}
+          onChange={(event) => setValue(event.target.value)}
+          onBlur={() => void commitRename()}
+          onKeyDown={(event) => { event.stopPropagation(); if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setRenaming(false); }}
+        />
         {runningSubagentCount > 0 && (
           <span className="codex-session-subagents" title={t("sidebar.runningSubagents", { count: runningSubagentCount })}>
             <LoaderCircle size={11} strokeWidth={1.8} style={{ animation: "spin 0.8s linear infinite" }} aria-hidden="true" />
@@ -1213,6 +1209,29 @@ function SessionRow({ session, selected, running, runningSubagentCount, unread, 
           </span>
         )}
       </div>
+      ) : (
+      <button type="button" className="codex-session-main" onClick={onSelect} title={rowTitle}>
+        {running ? (
+          <LoaderCircle
+            className="codex-session-running"
+            size={11}
+            strokeWidth={1.8}
+            style={{ animation: "spin 0.8s linear infinite", flexShrink: 0 }}
+            aria-label={t("sidebar.agentRunning")}
+            role="status"
+          />
+        ) : (
+          <span className="codex-session-state" data-unread={unread} />
+        )}
+        <span className={`codex-session-title${isRecent ? " codex-recent-session-title" : ""}`}>{title}</span>
+        {runningSubagentCount > 0 && (
+          <span className="codex-session-subagents" title={t("sidebar.runningSubagents", { count: runningSubagentCount })}>
+            <LoaderCircle size={11} strokeWidth={1.8} style={{ animation: "spin 0.8s linear infinite" }} aria-hidden="true" />
+            <span>{runningSubagentCount}</span>
+          </span>
+        )}
+      </button>
+      )}
       {isRecent && relativeTime ? <span className="codex-recent-session-time">{relativeTime}</span> : null}
       {!session.transient && (
         <div className="codex-session-menu-wrap">

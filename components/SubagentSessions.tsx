@@ -696,7 +696,7 @@ export function SubagentComposer({
       {error ? (
         <div
           role="alert"
-          style={{ color: "#dc2626", fontSize: "var(--text-meta)", lineHeight: "var(--leading-ui)", overflowWrap: "anywhere", minWidth: 0 }}
+          style={{ color: "var(--error)", fontSize: "var(--text-meta)", lineHeight: "var(--leading-ui)", overflowWrap: "anywhere", minWidth: 0 }}
         >
           {error}
         </div>

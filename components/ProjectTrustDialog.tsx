@@ -37,7 +37,7 @@ export function ProjectTrustDialog({
       )}
     >
       <div className="codex-dialog-confirm-copy">
-        <ShieldCheck size={18} color="#d97706" aria-hidden="true" />
+        <ShieldCheck size={18} color="var(--warning)" aria-hidden="true" />
         <span>{t("trust.dialogBody")}</span>
       </div>
       <code className="codex-dialog-inset">{cwd}</code>

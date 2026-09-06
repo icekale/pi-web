@@ -1828,7 +1828,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               <div key={i} style={{ position: "relative", flexShrink: 0 }}>
                 <img
                   src={img.previewUrl}
-                  alt=""
+                  alt={t("chat.attachedImage", { n: i + 1 })}
                   style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 6, border: "1px solid var(--border)", display: "block" }}
                 />
                 <button
@@ -2400,7 +2400,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                           width: "100%", padding: "7px 12px",
                           background: "none",
                           border: "none",
-                          color: isCompacting ? "#ef4444" : "var(--text-muted)",
+                          color: isCompacting ? "var(--error)" : "var(--text-muted)",
                           cursor: "pointer", fontSize: "var(--text-ui)", textAlign: "left",
                         }}
                       >

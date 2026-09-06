@@ -7,7 +7,9 @@ const chat = await readFile(new URL("./ChatWindow.tsx", import.meta.url), "utf8"
 const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
 
 test("desktop workspace exposes a transcript and a bounded context gutter", () => {
-  assert.match(shell, /className="app-center-column"/);
+  assert.match(shell, /className="skip-to-chat"/);
+  assert.match(shell, /<nav[\s\S]*id="session-sidebar"/);
+  assert.match(shell, /<main id="conversation" className="app-center-column"/);
   assert.match(shell, /<DesktopConversationContext/);
   assert.match(chat, /className="desktop-workspace-context"/);
   assert.match(chat, /DESKTOP_TRANSCRIPT_WIDTH = 760/);
