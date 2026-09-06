@@ -138,6 +138,7 @@ export interface AgentSessionLike {
   readonly autoCompactionEnabled: boolean;
   readonly autoRetryEnabled: boolean;
   readonly model: ModelLike | undefined;
+  readonly thinkingLevel?: string;
   readonly modelRuntime: {
     getModel: (provider: string, modelId: string) => ModelLike | undefined;
     refresh: (options?: { allowNetwork?: boolean }) => Promise<unknown>;

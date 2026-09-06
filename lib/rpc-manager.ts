@@ -726,7 +726,7 @@ export class AgentSessionWrapper {
         await this.inner.setModel(model);
         invalidateModelsCache();
         invalidateSessionListCache();
-        return { id: model.id, provider: model.provider };
+        return { id: model.id, provider: model.provider, thinkingLevel: this.inner.thinkingLevel };
       }
 
       case "fork": {
@@ -806,7 +806,7 @@ export class AgentSessionWrapper {
           this.inner.agent.state.thinkingLevel = "xhigh";
         }
         invalidateSessionListCache();
-        return null;
+        return { level: this.inner.thinkingLevel };
       }
 
       case "compact": {

@@ -30,8 +30,26 @@ test("session reloads cannot clear an in-flight optimistic model", () => {
   );
 });
 
-test("a completed model switch reloads canonical session state and reports failures", () => {
-  assert.match(switchSource, /modelSwitchPendingRef\.current = false;\s*await loadSession\(sid\)/);
+test("a completed model switch applies server thinking without reloading the session", () => {
+  assert.match(switchSource, /if \(result\.thinkingLevel !== undefined\) setThinkingLevel\(result\.thinkingLevel\)/);
+  assert.doesNotMatch(switchSource, /modelSwitchPendingRef\.current = false;\s*await loadSession\(sid\)/);
   assert.match(switchSource, /setCurrentModelOverride\(previousOverride\)/);
   assert.match(switchSource, /Failed to switch model:/);
+  assert.match(switchSource, /await loadSession\(sid\)/);
+});
+
+test("session reload applies thinking level including off", () => {
+  assert.match(
+    loadSessionSource,
+    /if \(d\.context\.thinkingLevel\) \{\s*setThinkingLevel\(d\.context\.thinkingLevel as ThinkingLevelOption\);/,
+  );
+  assert.doesNotMatch(loadSessionSource, /thinkingLevel !== "off"/);
+});
+
+test("thinking changes adopt the clamped server level", () => {
+  const thinkingSource = source.slice(
+    source.indexOf("const handleThinkingLevelChange = useCallback"),
+    source.indexOf("const handleToolPresetChange = useCallback"),
+  );
+  assert.match(thinkingSource, /if \(result\?\.level !== undefined\) setThinkingLevel\(result\.level\)/);
 });

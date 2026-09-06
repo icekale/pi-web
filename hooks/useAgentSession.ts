@@ -565,7 +565,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setHistoryHasMore(Boolean(d.hasMore));
       setCurrentModelOverride((current) => modelSwitchPendingRef.current ? current : null);
       setError(null);
-      if (d.context.thinkingLevel && d.context.thinkingLevel !== "off") {
+      if (d.context.thinkingLevel) {
         setThinkingLevel(d.context.thinkingLevel as ThinkingLevelOption);
       }
 
@@ -1703,7 +1703,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
       if (!sid) return;
       try {
-        await sendAgentCommand(sid, { type: "set_model", provider, modelId });
+        const result = await sendAgentCommand<{ thinkingLevel?: ThinkingLevelOption }>(sid, { type: "set_model", provider, modelId });
+        if (result.thinkingLevel !== undefined) setThinkingLevel(result.thinkingLevel);
       } catch (e) {
         console.error("Failed to set model:", e);
       }
@@ -1717,11 +1718,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setCurrentModelOverride(target);
     setModelSwitching(true);
     try {
-      await sendAgentCommand(sid, { type: "set_model", provider, modelId });
-      // Pi persists model_change synchronously. Reload the canonical session so
-      // the model, thinking level, and active leaf all advance together.
-      modelSwitchPendingRef.current = false;
-      await loadSession(sid);
+      const result = await sendAgentCommand<{ thinkingLevel?: ThinkingLevelOption }>(sid, { type: "set_model", provider, modelId });
+      // setModel also clamps/applies thinking for the new model. Trust that
+      // return value instead of reloading the whole session mid-stream.
+      if (result.thinkingLevel !== undefined) setThinkingLevel(result.thinkingLevel);
     } catch (e) {
       console.error("Failed to set model:", e);
       modelSwitchPendingRef.current = false;
@@ -2012,7 +2012,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
     if (!sid) return;
     try {
-      await sendAgentCommand(sid, { type: "set_thinking_level", level });
+      const result = await sendAgentCommand<{ level?: ThinkingLevelOption }>(sid, { type: "set_thinking_level", level });
+      if (result?.level !== undefined) setThinkingLevel(result.level);
     } catch (e) {
       console.error("Failed to set thinking level:", e);
     }
