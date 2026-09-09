@@ -445,11 +445,15 @@ test("queue dock labels steering vs follow-up and only steers follow-ups", async
 
 test("streaming composer shows a clickable interject button that steers", async () => {
   const source = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
-  // Draft + running: visible 插话 button on desktop and mobile. Enter still
-  // queues; the button / Cmd+Enter steers. A mobile-only follow-up send left
-  // no way to click-guide the agent.
+  // Draft + running: filled ArrowUp 插话. Enter still queues on desktop;
+  // mobile has no Enter-to-send, so ListPlus queues.
   assert.match(source, /\(value\.trim\(\) \|\| attachedImages\.length\) && onSteer/);
+  assert.match(source, /isMobile && \(value\.trim\(\) \|\| attachedImages\.length\) && onFollowUp/);
+  assert.match(source, /onClick=\{?\(\) => sendQueued\(false\)/);
   assert.match(source, /onClick=\{?\(\) => sendQueued\(true\)/);
+  assert.match(source, /<ListPlus /);
+  assert.match(source, /t\("chat\.queue"\)/);
+  assert.match(source, /chat\.queueTitleMobile/);
   assert.match(source, /t\("chat\.interject"\)/);
   assert.match(source, /chat\.interjectTitleMobile/);
   assert.match(source, /chat\.interjectTitle/);

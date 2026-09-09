@@ -13,6 +13,7 @@ import {
   Folder,
   History,
   List,
+  ListPlus,
   LoaderCircle,
   Minimize2,
   Pencil,
@@ -2622,7 +2623,24 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             )}
           {isStreaming ? (
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-              {/* Running + draft: click 插话 to steer now. Enter still queues. */}
+              {/* Running + draft: filled arrow interjects. Desktop Enter queues;
+                  mobile has no Enter-to-send, so show ListPlus to queue. */}
+              {isMobile && (value.trim() || attachedImages.length) && onFollowUp ? (
+                <button
+                  className="composer-icon-hit"
+                  onClick={() => sendQueued(false)}
+                  title={t("chat.queueTitleMobile")}
+                  aria-label={t("chat.queue")}
+                  style={{
+                    ...roundComposerButton,
+                    background: "transparent",
+                    border: "1px solid var(--border)",
+                    color: "var(--text)",
+                  }}
+                >
+                  <ListPlus size={14} strokeWidth={2.2} aria-hidden="true" />
+                </button>
+              ) : null}
               {(value.trim() || attachedImages.length) && onSteer ? (
                 <button
                   className="composer-icon-hit"
