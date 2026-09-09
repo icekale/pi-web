@@ -101,7 +101,7 @@ test("renders a collapsed Codex-style update plan activity by default", () => {
   assert.match(html, /aria-expanded="false"/);
   assert.match(html, /class="conversation-plan-items" data-expanded="false" aria-hidden="true"/);
   assert.match(html, /class="conversation-plan-items-content" role="list"/);
-  assert.doesNotMatch(html, /Inspect sidebar header/);
+  assert.match(html, /Inspect sidebar header/);
   assert.match(html, /Design sidebar hierarchy/);
   assert.doesNotMatch(html, /Todos|rpiv-todos/);
 });
@@ -111,11 +111,11 @@ test("renders plan rows only when expanded", () => {
 
   assert.match(html, /aria-expanded="true"/);
   assert.match(html, /class="conversation-plan-items" data-expanded="true" aria-hidden="false"/);
-  assert.doesNotMatch(html, /Inspect sidebar header/);
+  assert.match(html, /Inspect sidebar header/);
   assert.match(html, /Design sidebar hierarchy/);
   assert.match(html, /designing hierarchy/);
   assert.match(html, /Implement approved header/);
-  assert.doesNotMatch(html, /data-status="completed"/);
+  assert.match(html, /data-status="completed"/);
   assert.match(html, /data-status="in_progress"/);
 });
 
@@ -161,7 +161,7 @@ test("renders summary and row status without a frozen-looking loader", () => {
   assert.equal(complete, "");
 });
 
-test("hides completed and deleted rows and drops a finished plan", () => {
+test("keeps completed rows, hides deleted rows, and drops a finished plan", () => {
   const parsed = parseTodoWidget([
     "● Todos (2/4)",
     "├─ ✓ Done",
@@ -169,7 +169,7 @@ test("hides completed and deleted rows and drops a finished plan", () => {
     "├─ ◐ Current (working)",
     "└─ ○ Next",
   ]);
-  assert.deepEqual(visiblePlanItems(parsed).map((item) => item.text), ["Current", "Next"]);
+  assert.deepEqual(visiblePlanItems(parsed).map((item) => item.text), ["Done", "Current", "Next"]);
   assert.equal(renderPlan({
     widget: {
       ...widget,

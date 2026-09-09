@@ -65,10 +65,8 @@ export function parseTodoWidget(lines: string[], title?: string): TodoWidgetMode
   };
 }
 
-const OPEN_STATUSES = new Set<TodoStatus>(["pending", "in_progress"]);
-
 export function visiblePlanItems(model: TodoWidgetModel) {
-  return model.items.filter((item) => OPEN_STATUSES.has(item.status));
+  return model.items.filter((item) => item.status !== "deleted");
 }
 
 export function getConversationPlanWidget(widgets: ExtensionWidgetItem[]) {
@@ -106,7 +104,7 @@ export function ConversationPlan({
   const model = parseTodoWidget(widget.lines, widget.title);
   if (!model) return null;
   const items = visiblePlanItems(model);
-  if (!model.hasOpenItems && items.length === 0) return null;
+  if (!model.hasOpenItems) return null;
   const summaryStatus: TodoStatus = items.some((item) => item.status === "in_progress")
     ? "in_progress"
     : model.hasOpenItems ? "pending" : "completed";
