@@ -49,13 +49,24 @@ export function splitFinalAssistantBlocks(
   options: DisplayOptions = {},
 ): { answerBlocks: AssistantContentBlock[]; processBlocks: AssistantContentBlock[] } {
   const blocks = getDisplayableAssistantBlocks(message, options);
-  const lastProcessIndex = blocks.findLastIndex((block) => !isFinalAnswerBlock(block));
+  let last = blocks.length - 1;
+  while (last >= 0 && blocks[last]?.type === "thinking") last--;
+  const lastProcessIndex = blocks
+    .slice(0, last + 1)
+    .findLastIndex((block) => !isFinalAnswerBlock(block));
   if (lastProcessIndex === -1) {
-    return { answerBlocks: blocks, processBlocks: [] };
+    return {
+      answerBlocks: blocks.filter(isFinalAnswerBlock),
+      processBlocks: blocks.filter((block) => !isFinalAnswerBlock(block)),
+    };
   }
+  const after = blocks.slice(lastProcessIndex + 1);
   return {
-    answerBlocks: blocks.slice(lastProcessIndex + 1),
-    processBlocks: blocks.slice(0, lastProcessIndex + 1),
+    answerBlocks: after.filter(isFinalAnswerBlock),
+    processBlocks: [
+      ...blocks.slice(0, lastProcessIndex + 1),
+      ...after.filter((block) => !isFinalAnswerBlock(block)),
+    ],
   };
 }
 
