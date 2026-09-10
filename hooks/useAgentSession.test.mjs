@@ -118,6 +118,25 @@ test("branch navigation awaits the server and reverts the leaf on failure", () =
   assert.match(leafSource, /await loadContext\(sid, leafId\)/);
 });
 
+test("reloads the session when the tab becomes visible after a turn", () => {
+  const recoverySource = source.slice(
+    source.indexOf("  // Recovery net for missed SSE events"),
+    source.indexOf("  useEffect(() => {\n    agentRunningRef.current = agentRunning"),
+  );
+  assert.match(recoverySource, /visibilitychange/);
+  assert.match(recoverySource, /pageshow/);
+  assert.match(recoverySource, /else void loadSession\(sid\)/);
+  assert.match(recoverySource, /agentRunning\s*\?\s*setInterval\(sync, AGENT_STATE_RECONCILE_MS\)/);
+});
+
+test("defaults thinking to the model's highest level when jsonl never set one", () => {
+  assert.match(source, /function desiredThinkingLevel\(/);
+  assert.match(source, /highestThinkingLevel/);
+  assert.match(source, /else if \(thinkingLevelOverrideRef\.current === null && d\.context\.model\)/);
+  assert.match(source, /if \(isNew && !sessionIdRef\.current\) thinkingLevelOverrideRef\.current = next/);
+  assert.match(source, /type: "set_thinking_level", level: desired/);
+});
+
 test("a rejected submission preserves a different run reported by the server", () => {
   const reconcileSource = source.slice(
     source.indexOf("  const reconcileAgentState = useCallback"),

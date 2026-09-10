@@ -176,6 +176,7 @@ export interface AgentSessionLike {
   setModel(model: ModelLike): Promise<void>;
   navigateTree(targetId: string, options?: { summarize?: boolean }): Promise<NavigateTreeResult>;
   setThinkingLevel(level: string): void;
+  _refreshCurrentModelFromRegistry?(): void;
   compact(customInstructions?: string): Promise<unknown>;
   setSessionName(name: string): void;
   getSessionStats(): Omit<SessionStatsInfo, "sessionName">;

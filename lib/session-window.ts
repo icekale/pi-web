@@ -41,19 +41,37 @@ export function historyItemKey(item: unknown): string {
   return role;
 }
 
+function isThinkingOnlyAssistant(item: unknown): boolean {
+  return !!item && typeof item === "object"
+    && (item as { role?: unknown }).role === "assistant"
+    && historyItemKey(item) === "assistant:";
+}
+
+function hasAssistantText(items: unknown[]): boolean {
+  return items.some((item) => !!item && typeof item === "object"
+    && (item as { role?: unknown }).role === "assistant"
+    && historyItemKey(item) !== "assistant:");
+}
+
 function appendUnindexedTail<T>(items: T[], unindexed: T[]): T[] {
   if (unindexed.length === 0) return items;
+  // Thinking-only live rows key as "assistant:" and never match the jsonl
+  // answer, so they stick after every loadSession until a full remount.
+  const tail = hasAssistantText(items)
+    ? unindexed.filter((item) => !isThinkingOnlyAssistant(item))
+    : unindexed;
+  if (tail.length === 0) return items;
   const incomingKeys = items.map((item) => historyItemKey(item));
   let skip = 0;
-  for (let n = Math.min(unindexed.length, items.length); n > 0; n--) {
-    const liveKeys = unindexed.slice(0, n).map((item) => historyItemKey(item));
+  for (let n = Math.min(tail.length, items.length); n > 0; n--) {
+    const liveKeys = tail.slice(0, n).map((item) => historyItemKey(item));
     const suffix = incomingKeys.slice(-n);
     if (liveKeys.every((key, i) => key === suffix[i])) {
       skip = n;
       break;
     }
   }
-  return skip === unindexed.length ? items : [...items, ...unindexed.slice(skip)];
+  return skip === tail.length ? items : [...items, ...tail.slice(skip)];
 }
 
 export function mergeWindowedHistory<T>(

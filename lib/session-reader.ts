@@ -15,6 +15,7 @@ import { normalizeToolCalls } from "./normalize";
 import { sessionPathKey } from "./paths";
 import { projectTreeForResponse } from "./project-tree";
 import { SESSION_MESSAGE_WINDOW, SESSION_WINDOW_INITIAL_BYTES, SESSION_WINDOW_MAX_BYTES, sliceSessionContext } from "./session-window";
+import { sessionPathHasThinkingLevelChange } from "./thinking-level";
 import { computeSessionTotalActiveMs } from "./session-timing";
 import { resolveProject, type ProjectInfo } from "./worktree";
 
@@ -46,9 +47,17 @@ export function mergeSessionLists(
   supplementalSessions: SessionInfo[],
 ): SessionInfo[] {
   const byId = new Map(supplementalSessions.map((session) => [session.id, session]));
-  // A disk scan is authoritative once the JSONL exists. In particular, this
-  // replaces a transient registry snapshot without briefly rendering two rows.
-  for (const session of persistedSessions) byId.set(session.id, session);
+  // Disk wins identity/name once JSONL exists, but keep the newer modified so
+  // Recents can sort before the file mtime catches the last in-memory message.
+  for (const session of persistedSessions) {
+    const live = byId.get(session.id);
+    byId.set(
+      session.id,
+      live && live.modified.localeCompare(session.modified) > 0
+        ? { ...session, modified: live.modified }
+        : session,
+    );
+  }
   return [...byId.values()].sort((a, b) => b.modified.localeCompare(a.modified));
 }
 
@@ -703,7 +712,9 @@ export function buildSessionContext(
   return {
     messages,
     entryIds,
-    thinkingLevel: piCtx.thinkingLevel,
+    // Pi defaults a path with no thinking_level_change to "off". That is not a
+    // user choice — leave it empty so the UI can use the model's highest level.
+    thinkingLevel: sessionPathHasThinkingLevelChange(entries, leafId) ? piCtx.thinkingLevel : "",
     model: piCtx.model,
     goal: extractGoalFromEntries(entries),
   };
@@ -914,7 +925,7 @@ function treeFromEntries(entries: SessionEntry[]): SessionTreeNode[] {
 const EMPTY_CONTEXT: SessionContext = {
   messages: [],
   entryIds: [],
-  thinkingLevel: "off",
+  thinkingLevel: "",
   model: null,
 };
 

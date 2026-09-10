@@ -29,6 +29,7 @@ import {
   getLiveFollowAttached,
 } from "@/lib/chat-lazy-load";
 import { SESSION_MESSAGE_WINDOW, historyItemKey, mergeWindowedHistory } from "@/lib/session-window";
+import { highestThinkingLevel } from "@/lib/thinking-level";
 import {
   INITIAL_STREAMING_STATE,
   streamReducer,
@@ -163,6 +164,17 @@ export interface UseAgentSessionOptions {
 }
 
 export type ThinkingLevelOption = "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+
+function desiredThinkingLevel(
+  provider: string,
+  modelId: string,
+  levels: Record<string, string[]>,
+  pins: Record<string, string>,
+): ThinkingLevelOption {
+  const pin = pins[`${provider}/${modelId}`];
+  if (pin) return pin as ThinkingLevelOption;
+  return highestThinkingLevel(levels[`${provider}:${modelId}`]);
+}
 
 const PROMPT_SETTLE_INITIAL_DELAY_MS = 800;
 const PROMPT_SETTLE_POLL_MS = 600;
@@ -393,6 +405,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const newSessionPromotedRef = useRef(false);
   const newSessionModelOverrideRef = useRef<SelectedModel | null>(null);
   const thinkingLevelOverrideRef = useRef<Exclude<ThinkingLevelOption, "auto"> | null>(null);
+  const modelThinkingLevelsRef = useRef<Record<string, string[]>>({});
+  const modelThinkingLevelPinsRef = useRef<Record<string, string>>({});
+  const sessionModelRef = useRef<{ provider: string; modelId: string } | null>(null);
   const promptRunIdRef = useRef(0);
   const agentLifecycleGenerationRef = useRef(0);
   // Highest prompt generation seen on the SSE wire; terminal events stamped
@@ -565,8 +580,17 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setHistoryHasMore(Boolean(d.hasMore));
       setCurrentModelOverride((current) => modelSwitchPendingRef.current ? current : null);
       setError(null);
+      sessionModelRef.current = d.context.model;
       if (d.context.thinkingLevel) {
         setThinkingLevel(d.context.thinkingLevel as ThinkingLevelOption);
+      } else if (thinkingLevelOverrideRef.current === null && d.context.model) {
+        const next = desiredThinkingLevel(
+          d.context.model.provider,
+          d.context.model.modelId,
+          modelThinkingLevelsRef.current,
+          modelThinkingLevelPinsRef.current,
+        );
+        if (next !== "auto") setThinkingLevel(next);
       }
 
       messagesLoaded = true;
@@ -1154,27 +1178,35 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   // Recovery net for missed SSE events: while the agent is running, verify
   // against the server periodically and whenever the tab returns to the
-  // foreground or the network comes back.
+  // foreground or the network comes back. After a turn, coming back from
+  // background still needs a disk reload — live thinking-only rows otherwise
+  // stay until a full remount.
   useEffect(() => {
-    if (!agentRunning) return;
-    const reconcile = () => {
-      // Read the ref on every tick: for brand-new sessions the id is
-      // assigned only after ensure_session returns.
+    const sync = () => {
       const sid = sessionIdRef.current;
-      if (sid) void reconcileAgentState(sid);
+      if (!sid) return;
+      if (agentRunningRef.current) void reconcileAgentState(sid);
+      else void loadSession(sid);
     };
     const onVisible = () => {
-      if (document.visibilityState === "visible") reconcile();
+      if (document.visibilityState === "visible") sync();
     };
-    const interval = setInterval(reconcile, AGENT_STATE_RECONCILE_MS);
+    const onPageShow = (event: Event) => {
+      if ((event as PageTransitionEvent).persisted) onVisible();
+    };
+    const interval = agentRunning
+      ? setInterval(sync, AGENT_STATE_RECONCILE_MS)
+      : undefined;
     document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("online", reconcile);
+    window.addEventListener("online", sync);
+    window.addEventListener("pageshow", onPageShow);
     return () => {
-      clearInterval(interval);
+      if (interval) clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("online", reconcile);
+      window.removeEventListener("online", sync);
+      window.removeEventListener("pageshow", onPageShow);
     };
-  }, [agentRunning, reconcileAgentState]);
+  }, [agentRunning, loadSession, reconcileAgentState]);
 
   useEffect(() => {
     agentRunningRef.current = agentRunning;
@@ -1694,6 +1726,28 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     await loadContext(sid, leafId);
   }, [loadContext]);
 
+  const applyDesiredThinkingLevel = async (sid: string | null, provider: string, modelId: string, serverLevel?: ThinkingLevelOption) => {
+    const desired = desiredThinkingLevel(
+      provider,
+      modelId,
+      modelThinkingLevelsRef.current,
+      modelThinkingLevelPinsRef.current,
+    );
+    if (!sid) {
+      if (desired !== "auto") {
+        setThinkingLevel(desired);
+        thinkingLevelOverrideRef.current = desired;
+      }
+      return;
+    }
+    if (desired !== "auto" && desired !== serverLevel) {
+      const applied = await sendAgentCommand<{ level?: ThinkingLevelOption }>(sid, { type: "set_thinking_level", level: desired });
+      setThinkingLevel(applied?.level ?? desired);
+      return;
+    }
+    if (serverLevel !== undefined) setThinkingLevel(serverLevel);
+  };
+
   const handleModelChange = useCallback(async (provider: string, modelId: string) => {
     if (isNew) {
       const selectedModel = { provider, modelId };
@@ -1701,10 +1755,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setNewSessionModel(selectedModel);
       setPendingModel(selectedModel);
       const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
-      if (!sid) return;
+      if (!sid) {
+        await applyDesiredThinkingLevel(null, provider, modelId);
+        return;
+      }
       try {
         const result = await sendAgentCommand<{ thinkingLevel?: ThinkingLevelOption }>(sid, { type: "set_model", provider, modelId });
-        if (result.thinkingLevel !== undefined) setThinkingLevel(result.thinkingLevel);
+        await applyDesiredThinkingLevel(sid, provider, modelId, result.thinkingLevel);
       } catch (e) {
         console.error("Failed to set model:", e);
       }
@@ -1719,9 +1776,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setModelSwitching(true);
     try {
       const result = await sendAgentCommand<{ thinkingLevel?: ThinkingLevelOption }>(sid, { type: "set_model", provider, modelId });
-      // setModel also clamps/applies thinking for the new model. Trust that
-      // return value instead of reloading the whole session mid-stream.
-      if (result.thinkingLevel !== undefined) setThinkingLevel(result.thinkingLevel);
+      await applyDesiredThinkingLevel(sid, provider, modelId, result.thinkingLevel);
     } catch (e) {
       console.error("Failed to set model:", e);
       modelSwitchPendingRef.current = false;
@@ -1767,21 +1822,33 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setModelNames(d.models);
     setModelError(d.modelError ?? null);
     setModelScopeWarnings(d.modelScopeWarnings ?? []);
-    setModelThinkingLevels(d.thinkingLevels ?? {});
+    const nextLevels = d.thinkingLevels ?? {};
+    const nextPins = d.thinkingLevelPins ?? {};
+    setModelThinkingLevels(nextLevels);
     setModelThinkingLevelMaps(d.thinkingLevelMaps ?? {});
+    modelThinkingLevelsRef.current = nextLevels;
+    modelThinkingLevelPinsRef.current = nextPins;
     const nextModelList = d.modelList ?? [];
     setModelList(nextModelList);
-    if (isNew && !sessionIdRef.current) {
+    if (thinkingLevelOverrideRef.current === null) {
       const match = d.defaultModel
         ? nextModelList.find((m) => m.id === d.defaultModel?.modelId && m.provider === d.defaultModel?.provider)
         : undefined;
-      const displayModel = match ?? nextModelList[0];
-      setNewSessionDefaultModel(displayModel ? { provider: displayModel.provider, modelId: displayModel.id } : null);
-      // An `enabledModels` pattern may pin a thinking level (`anthropic/*:high`).
-      // Like pi, apply it to the model a new session starts with.
-      const pinned = displayModel && d.thinkingLevelPins?.[`${displayModel.provider}/${displayModel.id}`];
-      if (thinkingLevelOverrideRef.current === null) {
-        setThinkingLevel((pinned as ThinkingLevelOption | undefined) ?? "auto");
+      const displayModel = isNew && !sessionIdRef.current
+        ? (match ?? nextModelList[0])
+        : sessionModelRef.current
+          ? nextModelList.find((m) => m.id === sessionModelRef.current?.modelId && m.provider === sessionModelRef.current?.provider)
+            ?? { id: sessionModelRef.current.modelId, name: "", provider: sessionModelRef.current.provider }
+          : undefined;
+      if (isNew && !sessionIdRef.current) {
+        setNewSessionDefaultModel(displayModel ? { provider: displayModel.provider, modelId: displayModel.id } : null);
+      }
+      if (displayModel) {
+        const next = desiredThinkingLevel(displayModel.provider, displayModel.id, nextLevels, nextPins);
+        if (next !== "auto") {
+          setThinkingLevel(next);
+          if (isNew && !sessionIdRef.current) thinkingLevelOverrideRef.current = next;
+        }
       }
     }
   }, [isNew, newSessionCwd, session?.cwd]);

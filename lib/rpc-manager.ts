@@ -798,6 +798,7 @@ export class AgentSessionWrapper {
 
       case "set_thinking_level": {
         const level = command.level as string;
+        this.inner._refreshCurrentModelFromRegistry?.();
         this.inner.setThinkingLevel(level);
         // setThinkingLevel clamps xhigh→high for models where supportsXhigh()===false.
         // If the model has DeepSeek thinking compat (reasoningEffortMap maps xhigh→max),

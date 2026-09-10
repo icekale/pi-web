@@ -1722,7 +1722,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       })
     : null;
   const visibleThinkingLevels = THINKING_LEVELS.filter((lvl) => {
-    if (!availableThinkingLevels) return true;
+    // Missing map = unknown model, not "every level". Showing xhigh/high here
+    // lets the click go to the server and come back clamped to off.
+    if (!availableThinkingLevels) return lvl === "auto" || lvl === "off";
     if (lvl === "auto") return true;
     return availableThinkingLevels.includes(lvl);
   });
