@@ -9,7 +9,9 @@ const jiti = createJiti(import.meta.url, {
   jsx: { runtime: "automatic" },
   tsconfigPaths: true,
 });
-const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canRestoreUserMessage, composerThinkingBadgeLevel, filterModelOptions, getUpwardMenuMaxHeight, getUserMessageText, getUserMessageDraftImages } = await jiti.import("./ChatInput.tsx");
+const { ChatInput, ModelErrorBanner, ModelScopeWarningBanner, canRestoreUserMessage, composerThinkingBadgeLevel, filterModelOptions, getUserMessageText, getUserMessageDraftImages } = await jiti.import("./ChatInput.tsx");
+const { cycleListIndex, getUpwardMenuMaxHeight } = await jiti.import("../lib/chat-composer-menu.ts");
+const { replaceLinksWithMarkdown } = await jiti.import("../lib/html-links.ts");
 const { clearDraft, getDraft, mergeRestoredSubmissionDraft, mergeRestoredSubmissionText, rekeyDraft, setDraft } = await jiti.import("../lib/draft-store.ts");
 const { I18nProvider } = await jiti.import("../hooks/useI18n.tsx");
 
@@ -508,6 +510,33 @@ test("IME grace does not swallow Cmd/Ctrl+Enter interject", async () => {
   assert.ok(start >= 0 && end > start, "IME send guard should exist");
   assert.match(guard, /accelerated/);
   assert.match(guard, /isComposing \|\| !accelerated/);
+});
+
+test("wraps ArrowUp/ArrowDown file matches", () => {
+  assert.equal(cycleListIndex(0, -1, 3), 2);
+  assert.equal(cycleListIndex(2, 1, 3), 0);
+  assert.equal(cycleListIndex(0, 1, 0), 0);
+});
+
+test("turns pasted HTML links into markdown", () => {
+  assert.equal(
+    replaceLinksWithMarkdown('<a href="https://example.com">Example</a>'),
+    "[Example](https://example.com)",
+  );
+});
+
+test("blocks a second builtin slash command while the first is pending", async () => {
+  const source = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
+  assert.match(source, /const \[builtinCommandPending, setBuiltinCommandPending\] = useState\(false\)/);
+  assert.match(source, /if \(isStreaming \|\| builtinCommandPending\) return/);
+  assert.match(source, /disabled=\{builtinCommandPending\}/);
+});
+
+test("sizes the @ file picker against the visible composer area", async () => {
+  const source = await readFile(new URL("./ChatInput.tsx", import.meta.url), "utf8");
+  assert.match(source, /subscribeUpwardMenuMaxHeight/);
+  assert.match(source, /ref=\{atMenuRef\}/);
+  assert.match(source, /flex: 1, minHeight: 0, overflowY: "auto"/);
 });
 
 test("clears slash commands before waiting for a builtin handler", async () => {

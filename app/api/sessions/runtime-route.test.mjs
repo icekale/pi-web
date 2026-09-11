@@ -23,6 +23,8 @@ test("session listing merges live registry snapshots and honors force refresh", 
   assert.match(listRoute, /searchParams\.get\("force"\) === "1"/);
   assert.match(listRoute, /listAllSessions\(\{ force \}\)/);
   assert.match(listRoute, /attachSessionProjectInfo\(getRpcSessionInfos\(\)\)/);
+  assert.match(listRoute, /jsonResponse\(/);
+  assert.match(detailRoute, /jsonResponse\(req,/);
   assert.match(listRoute, /mergeSessionLists\(persistedSessions, runtimeSessions\)/);
   assert.match(listRoute, /"Cache-Control": "no-store"/);
 });
@@ -312,6 +314,82 @@ test("delete shuts down live child sessions before rewriting their files", async
   const childHeader = JSON.parse(readFileSync(childPath, "utf8").split("\n")[0]);
   assert.equal(childHeader.parentSession, undefined);
   assert.match(readFileSync(childPath, "utf8"), /keep me/);
+});
+
+test("delete of a cached path whose file is gone still shuts down the live wrapper", async (t) => {
+  const previousRegistry = globalThis.__piSessions;
+  const dir = mkdtempSync(join(tmpdir(), "pi-web-session-missing-"));
+  const id = "missing-file-delete-test";
+  const path = join(dir, `${id}.jsonl`);
+  cacheSessionPath(id, path);
+  const calls = [];
+  globalThis.__piSessions = new Map([
+    [id, { isAlive: () => true, shutdown: async () => { calls.push("shutdown"); } }],
+  ]);
+  t.after(() => {
+    globalThis.__piSessions = previousRegistry;
+  });
+
+  const response = await deleteSession(
+    new Request(`http://localhost/api/sessions/${id}`, { method: "DELETE" }),
+    { params: Promise.resolve({ id }) },
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(calls, ["shutdown"]);
+});
+
+test("delete removes subagent descendants and reparents conversation forks", async (t) => {
+  const previousRegistry = globalThis.__piSessions;
+  const dir = mkdtempSync(join(tmpdir(), "pi-web-session-subagent-delete-"));
+  const parentId = "parent-subagent-delete";
+  const subagentId = "child-subagent-delete";
+  const forkId = "child-fork-delete";
+  const parentPath = join(dir, `${parentId}.jsonl`);
+  const subagentPath = join(dir, `${subagentId}.jsonl`);
+  const forkPath = join(dir, `${forkId}.jsonl`);
+  writeFileSync(parentPath, `${JSON.stringify({
+    type: "session", version: 3, id: parentId, timestamp: "2026-08-14T00:00:00.000Z", cwd: dir,
+  })}\n`);
+  writeFileSync(subagentPath, `${JSON.stringify({
+    type: "session", version: 3, id: subagentId, timestamp: "2026-08-14T00:00:01.000Z", cwd: dir,
+    parentSession: parentPath,
+  })}\n${JSON.stringify({
+    type: "session_info", id: "si1", parentId: null, timestamp: "2026-08-14T00:00:01.500Z",
+    name: "subagent-worker-317e1ca0-1",
+  })}\n`);
+  writeFileSync(forkPath, `${JSON.stringify({
+    type: "session", version: 3, id: forkId, timestamp: "2026-08-14T00:00:02.000Z", cwd: dir,
+    parentSession: parentPath,
+  })}\n${JSON.stringify({
+    type: "message", id: "m1", parentId: null, timestamp: "2026-08-14T00:00:03.000Z",
+    message: { role: "user", content: "keep fork" },
+  })}\n`);
+  cacheSessionPath(parentId, parentPath);
+  cacheSessionPath(subagentId, subagentPath);
+  cacheSessionPath(forkId, forkPath);
+
+  const order = [];
+  globalThis.__piSessions = new Map([
+    [subagentId, { isAlive: () => true, shutdown: async () => { order.push("subagent-shutdown"); } }],
+    [forkId, { isAlive: () => true, shutdown: async () => { order.push("fork-shutdown"); } }],
+    [parentId, { isAlive: () => true, shutdown: async () => { order.push("parent-shutdown"); } }],
+  ]);
+  t.after(() => {
+    globalThis.__piSessions = previousRegistry;
+  });
+
+  const response = await deleteSession(
+    new Request(`http://localhost/api/sessions/${parentId}`, { method: "DELETE" }),
+    { params: Promise.resolve({ id: parentId }) },
+  );
+  assert.equal(response.status, 200);
+  assert.equal(existsSync(parentPath), false);
+  assert.equal(existsSync(subagentPath), false);
+  assert.equal(existsSync(forkPath), true);
+  const forkHeader = JSON.parse(readFileSync(forkPath, "utf8").split("\n")[0]);
+  assert.equal(forkHeader.parentSession, undefined);
+  assert.equal(order.at(-1), "parent-shutdown");
+  assert.deepEqual(new Set(order.slice(0, -1)), new Set(["subagent-shutdown", "fork-shutdown"]));
 });
 
 test("session listing caps firstMessage without mutating the source", async () => {

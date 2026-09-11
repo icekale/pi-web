@@ -10,6 +10,7 @@ import type {
   ExtensionWidgetItem,
   SessionInfo,
   SessionTreeNode,
+  ToolResultMessage,
   UserMessage,
 } from "@/lib/types";
 import { isBlockingExtensionUiRequest } from "@/lib/browser-notifications";
@@ -37,6 +38,7 @@ import {
   type StreamAction,
 } from "@/lib/streaming-message";
 import { createTextDeltaBatcher } from "@/lib/text-delta-batcher";
+import { getSessionLeaseHeartbeatMs } from "@/lib/session-liveness";
 
 export interface SessionData {
   sessionId: string;
@@ -340,12 +342,15 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [extensionStatuses, setExtensionStatuses] = useState<ExtensionStatusItem[]>([]);
   const [extensionWidgets, setExtensionWidgets] = useState<ExtensionWidgetItem[]>([]);
   const [queuedMessages, setQueuedMessages] = useState<QueuedMessages>({ steering: [], followUp: [] });
+  const [activeToolResults, setActiveToolResults] = useState<ToolResultMessage[]>([]);
 
   const eventConnectionRef = useRef<AgentEventConnection | null>(null);
   const eventStreamGraceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const eventStreamGraceGenerationRef = useRef(0);
   const eventStreamGraceActiveRef = useRef(false);
   const sessionIdRef = useRef<string | null>(session?.id ?? null);
+  const readOnlyHistoryRef = useRef(Boolean(opts.readOnlyHistory));
+  readOnlyHistoryRef.current = Boolean(opts.readOnlyHistory);
   const loadedSessionIdRef = useRef<string | null>(null);
   const historyRefreshSeenRef = useRef(false);
   const entryIdsRef = useRef<string[]>([]);
@@ -428,11 +433,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       shouldMaintain: (sid) => (
         sessionHookMountedRef.current
         && sessionIdRef.current === sid
-        && (
-          agentRunningRef.current
-          || eventStreamGraceActiveRef.current
-          || (sessionPropIdRef.current === sid && sessionRunningRef.current)
-        )
+        && !readOnlyHistoryRef.current
       ),
       readinessTimeoutMs: EVENT_STREAM_READY_TIMEOUT_MS,
       reconnectDelayMs: EVENT_STREAM_RECONNECT_DELAY_MS,
@@ -831,24 +832,16 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     eventConnectionRef.current!.maintain(sid);
   }, []);
 
-  // A different browser can start this session after it was opened here.
-  // The sidebar's lightweight running-state poll gives us a cheap signal to
-  // attach to the existing SSE stream without adding another synchronization
-  // protocol to the chat.
+  // Keep SSE open while this session is selected so the server lease stays live.
   useEffect(() => {
-    if (!session?.id || !sessionRunning) return;
-    maintainEventsConnected(session.id);
-    return () => {
-      if (
-        sessionIdRef.current === session.id
-        && !agentRunningRef.current
-        && !eventStreamGraceActiveRef.current
-        && (sessionPropIdRef.current !== session.id || !sessionRunningRef.current)
-      ) {
-        eventConnectionRef.current?.close();
-      }
-    };
-  }, [maintainEventsConnected, session?.id, sessionRunning]);
+    if (!session?.id || opts.readOnlyHistory) return;
+    const sid = session.id;
+    maintainEventsConnected(sid);
+    const timer = setInterval(() => {
+      if (sessionIdRef.current === sid) maintainEventsConnected(sid);
+    }, getSessionLeaseHeartbeatMs());
+    return () => clearInterval(timer);
+  }, [maintainEventsConnected, opts.readOnlyHistory, session?.id]);
 
   const respondToExtensionUi = useCallback(async (
     request: ExtensionUiDialogRequest,
@@ -986,6 +979,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setAgentRunning(false);
     setAgentPhase(null);
     setRetryInfo(null);
+    setActiveToolResults([]);
     commitLiveAssistant();
     dispatch({ type: "end" });
     return wasRunning;
@@ -1041,7 +1035,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
         eventStreamGraceActiveRef.current = false;
         eventStreamGraceTimerRef.current = null;
-        closeEvents();
+        if (sessionIdRef.current === sid) maintainEventsConnected(sid);
+        else closeEvents();
       } catch {
         // Keep the stream alive while state cannot be verified.
         if (
@@ -1054,7 +1049,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     };
 
     eventStreamGraceTimerRef.current = setTimeout(() => void checkServerIdle(), EVENT_STREAM_IDLE_GRACE_MS);
-  }, [cancelEventStreamGrace, closeEvents]);
+  }, [cancelEventStreamGrace, closeEvents, maintainEventsConnected]);
 
   const finishPromptWithoutStream = useCallback(async (sid: string | null = sessionIdRef.current, runId = promptRunIdRef.current) => {
     // Bail out before loadSession too: a stale finish for a previous run
@@ -1447,6 +1442,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       case "tool_execution_end": {
         const id = event.toolCallId as string;
+        const result = event.result as ToolResultMessage | undefined;
+        if (result) {
+          setActiveToolResults((prev) => {
+            const next = prev.filter((item) => item.toolCallId !== result.toolCallId);
+            next.push(result);
+            return next;
+          });
+        }
         setAgentPhase((prev) => {
           if (prev?.kind !== "running_tools") return prev;
           const tools = prev.tools.filter((t) => t.id !== id);
@@ -2094,10 +2097,11 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (!sid) return;
     try {
       await sendAgentCommand(sid, { type: "set_tools", toolNames });
+      maintainEventsConnected(sid);
     } catch (e) {
       console.error("Failed to set tools:", e);
     }
-  }, [setToolPresetState]);
+  }, [maintainEventsConnected, setToolPresetState]);
 
   const scrollUserMsgToTop = useCallback(() => {
     const container = scrollContainerRef.current;
@@ -2199,6 +2203,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       setExtensionStatuses([]);
       setExtensionWidgets([]);
       setQueuedMessages({ steering: [], followUp: [] });
+      setActiveToolResults([]);
       setForkingEntryId(null);
       setCurrentModelOverride(null);
       setPendingModel(null);
@@ -2234,7 +2239,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           agentRunningRef.current = true;
           setAgentRunning(true);
           setAgentPhase(agentState.state.isStreaming ? { kind: "waiting_model" } : { kind: "running_command" });
-          dispatch({ type: "start" });
+          dispatch({ type: "resume" });
           void maintainEventsConnected(sid);
           if (!agentState.state.isStreaming && agentState.state.isPromptRunning) {
             void waitForPromptSettlement(sid);
@@ -2352,7 +2357,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     agentRunning, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, modelSwitching, sessionStats,
-    slashCommands, slashCommandsLoading, queuedMessages,
+    slashCommands, slashCommandsLoading, queuedMessages, activeToolResults,
     notices: noticeState.visible, dismissNotice, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput, runExtensionCommand,
     isAutoModelSelection: isNew && newSessionModel === null,
     agentPhase,

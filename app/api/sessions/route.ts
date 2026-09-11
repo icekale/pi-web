@@ -5,6 +5,7 @@ import {
 } from "@/lib/session-reader";
 import { getRpcSessionInfos, getRunningRpcSessionIds } from "@/lib/rpc-manager";
 import { attachSessionRelations } from "@/lib/session-relations";
+import { jsonResponse } from "@/lib/json-response";
 import type { SessionInfo } from "@/lib/types";
 
 
@@ -23,7 +24,8 @@ export async function GET(req: Request) {
       attachSessionProjectInfo(getRpcSessionInfos()),
     ]);
     const sessions = attachSessionRelations(mergeSessionLists(persistedSessions, runtimeSessions)).map(compactSessionForList);
-    return Response.json(
+    return jsonResponse(
+      req,
       { sessions, runningSessionIds: getRunningRpcSessionIds() },
       { headers: { "Cache-Control": "no-store" } },
     );

@@ -295,7 +295,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     agentRunning, bashRunning, pendingBash, modelNames, modelList, modelError, modelScopeWarnings, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, modelSwitching, sessionStats,
-    slashCommands, slashCommandsLoading, queuedMessages,
+    slashCommands, slashCommandsLoading, queuedMessages, activeToolResults,
     notices, dismissNotice, extensionDialog, extensionCustomUi, extensionStatuses, extensionWidgets, respondToExtensionUi, sendExtensionCustomInput, runExtensionCommand,
     isAutoModelSelection,
     agentPhase,
@@ -489,8 +489,11 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
         map.set((msg as ToolResultMessage).toolCallId, { ...(msg as ToolResultMessage), entryId: entryIds[index] });
       }
     });
+    for (const result of activeToolResults) {
+      if (!map.has(result.toolCallId)) map.set(result.toolCallId, result);
+    }
     return map;
-  }, [entryIds, messages]);
+  }, [activeToolResults, entryIds, messages]);
   const inputHistory = useMemo(() => {
     const seen = new Set<string>();
     const history: string[] = [];
@@ -1178,7 +1181,7 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
               );
             })()}
             {streamState.isStreaming && hasStreamingContent && streamState.streamingMessage && (
-              <MessageView message={streamState.streamingMessage as AgentMessage} isStreaming modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} sessionId={session?.id ?? sessionIdRef.current ?? undefined} tokenSpeedEnabled={tokenSpeedEnabled} />
+              <MessageView message={streamState.streamingMessage as AgentMessage} isStreaming modelNames={modelNames} cwd={messageCwd} onOpenFile={onOpenFile} sessionId={session?.id ?? sessionIdRef.current ?? undefined} tokenSpeedEnabled={tokenSpeedEnabled} toolResults={toolResultsMap} />
             )}
 
             {agentRunning && agentPhase?.kind === "stopping" && (

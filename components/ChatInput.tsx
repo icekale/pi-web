@@ -37,6 +37,13 @@ import {
   type ChatDraftImage,
 } from "@/lib/draft-store";
 import {
+  cycleListIndex,
+  getUpwardMenuMaxHeight,
+  getVisibleTopBoundary,
+  subscribeUpwardMenuMaxHeight,
+} from "@/lib/chat-composer-menu";
+import { replaceLinksWithMarkdown } from "@/lib/html-links";
+import {
   MAX_ATTACHED_IMAGE_BYTES,
   MAX_ATTACHED_IMAGES,
   isBase64ImageWithinLimits,
@@ -153,25 +160,6 @@ function toolPresetLabelFor(preset?: ToolPreset | null): ToolPresetLabel {
 const COMPOSITION_END_ENTER_GRACE_MS = 100;
 const MODEL_FILTER_THRESHOLD = 8;
 const MODEL_OPTION_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
-const ANCHORED_MENU_GAP = 8;
-
-export function getUpwardMenuMaxHeight(menuBottom: number, visibleTop: number, gap = ANCHORED_MENU_GAP): number {
-  return Math.max(0, Math.floor(menuBottom - visibleTop - gap));
-}
-
-function getVisibleTopBoundary(element: HTMLElement): number {
-  let visibleTop = window.visualViewport?.offsetTop ?? 0;
-
-  for (let parent = element.parentElement; parent; parent = parent.parentElement) {
-    const overflowY = window.getComputedStyle(parent).overflowY;
-    if (overflowY === "auto" || overflowY === "scroll" || overflowY === "hidden" || overflowY === "clip") {
-      visibleTop = Math.max(visibleTop, parent.getBoundingClientRect().top + parent.clientTop);
-    }
-  }
-
-  return visibleTop;
-}
-
 function compareModelOptions(a: ModelOption, b: ModelOption): number {
   return MODEL_OPTION_COLLATOR.compare(a.name || a.modelId, b.name || b.modelId)
     || MODEL_OPTION_COLLATOR.compare(a.provider, b.provider)
@@ -728,8 +716,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [atQuery, setAtQuery] = useState<AtQueryMatch | null>(null);
   const [atMenuOpen, setAtMenuOpen] = useState(false);
   const [atActiveIndex, setAtActiveIndex] = useState(0);
+  const [atMenuMaxHeight, setAtMenuMaxHeight] = useState<number | null>(null);
   const [historyMenuOpen, setHistoryMenuOpen] = useState(false);
   const [aborting, setAborting] = useState(false);
+  const [builtinCommandPending, setBuiltinCommandPending] = useState(false);
   const [historyActiveIndex, setHistoryActiveIndex] = useState(0);
   const [fileIndex, setFileIndex] = useState<{ cwd: string; entries: FileIndexEntry[]; truncated: boolean } | null>(null);
   const [fileIndexLoading, setFileIndexLoading] = useState(false);
@@ -753,6 +743,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const lastCompositionEndAtRef = useRef(0);
   const slashCommandsRequestedRef = useRef(false);
   const slashMenuRef = useRef<HTMLDivElement>(null);
+  const atMenuRef = useRef<HTMLDivElement>(null);
   const slashItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const atItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const historyItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -1071,24 +1062,29 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const handleSend = useCallback(async () => {
     const msg = value.trim();
     if (!msg && !attachedImages.length) return;
-    if (isStreaming) return;
+    if (isStreaming || builtinCommandPending) return;
     onAudioUnlock?.();
     if (!attachedImages.length && msg.startsWith("/") && onBuiltinCommand) {
+      setBuiltinCommandPending(true);
       clearInput();
-      const result = await onBuiltinCommand(msg);
-      if (result.handled) {
-        if (result.error && valueRef.current === "") {
-          valueRef.current = msg;
-          setValue(msg);
+      try {
+        const result = await onBuiltinCommand(msg);
+        if (result.handled) {
+          if (result.error && valueRef.current === "") {
+            valueRef.current = msg;
+            setValue(msg);
+          }
+          return;
         }
-        return;
+        onSend(msg);
+      } finally {
+        setBuiltinCommandPending(false);
       }
-      onSend(msg);
       return;
     }
     clearInput();
     onSend(msg, attachedImages.length ? attachedImages : undefined);
-  }, [value, attachedImages, isStreaming, onBuiltinCommand, onSend, clearInput, onAudioUnlock]);
+  }, [value, attachedImages, isStreaming, builtinCommandPending, onBuiltinCommand, onSend, clearInput, onAudioUnlock]);
 
   const slashQuery = !compact && value.startsWith("/") && !/\s/.test(value.slice(1))
     ? value.slice(1).toLowerCase()
@@ -1506,12 +1502,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       if (atMenuOpen && atQuery !== null && !isComposing) {
         if (e.key === "ArrowDown") {
           e.preventDefault();
-          setAtActiveIndex((i) => Math.min(Math.max(0, atMatches.length - 1), i + 1));
+          setAtActiveIndex((i) => cycleListIndex(i, 1, atMatches.length));
           return;
         }
         if (e.key === "ArrowUp") {
           e.preventDefault();
-          setAtActiveIndex((i) => Math.max(0, i - 1));
+          setAtActiveIndex((i) => cycleListIndex(i, -1, atMatches.length));
           return;
         }
         if (e.key === "Escape") {
@@ -1571,6 +1567,27 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
     if (compact) return;
+    const html = e.clipboardData?.getData("text/html") ?? "";
+    if (html.toLowerCase().includes("<" + "a")) {
+      const markdown = replaceLinksWithMarkdown(html);
+      if (markdown) {
+        e.preventDefault();
+        const ta = textareaRef.current;
+        if (ta) {
+          const start = ta.selectionStart ?? ta.value.length;
+          const end = ta.selectionEnd ?? ta.value.length;
+          const next = ta.value.slice(0, start) + markdown + ta.value.slice(end);
+          valueRef.current = next;
+          setValue(next);
+          requestAnimationFrame(() => {
+            const pos = start + markdown.length;
+            ta.setSelectionRange(pos, pos);
+            ta.style.height = "auto";
+            ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+          });
+        }
+      }
+    }
     const items = Array.from(e.clipboardData?.items ?? []);
     const imageItems = items.filter((item) => item.type.startsWith("image/"));
     if (!imageItems.length) return;
@@ -1681,6 +1698,18 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       if (frameId !== null) cancelAnimationFrame(frameId);
     };
   }, [slashMenuOpen, slashQuery]);
+
+  useLayoutEffect(() => {
+    if (!atMenuOpen || atQuery === null) {
+      setAtMenuMaxHeight(null);
+      return;
+    }
+    const menu = atMenuRef.current;
+    if (!menu) return;
+    return subscribeUpwardMenuMaxHeight(menu, (nextHeight) => {
+      setAtMenuMaxHeight((current) => current === nextHeight ? current : nextHeight);
+    });
+  }, [atMenuOpen, atQuery]);
 
   // Build model options: prefer modelList (has provider info), fallback to modelNames
   const modelOptions: ModelOption[] = (() => {
@@ -1873,6 +1902,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
         {/* Main input */}
         <div style={{ position: "relative", minWidth: 0 }}>
+          <fieldset
+            disabled={builtinCommandPending}
+            style={{ minWidth: 0, margin: 0, padding: 0, border: "none", minInlineSize: 0, display: "contents" }}
+          >
           {historyMenuOpen && inputHistory.length > 0 && (
             <div
               ref={historyMenuRef}
@@ -2107,6 +2140,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               : "";
             return (
               <div
+                ref={atMenuRef}
                 style={{
                   position: "absolute",
                   left: 0,
@@ -2118,7 +2152,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   borderRadius: 8,
                   boxShadow: "0 -6px 20px rgba(0,0,0,0.12)",
                   overflow: "hidden",
-                  maxHeight: "min(48vh, 400px)",
+                  boxSizing: "border-box",
+                  display: "flex",
+                  flexDirection: "column",
+                  maxHeight: atMenuMaxHeight === null
+                    ? "min(48vh, 400px)"
+                    : `min(48vh, 400px, ${atMenuMaxHeight}px)`,
                 }}
               >
                 <div
@@ -2140,7 +2179,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   </span>
                    <span style={{ fontFamily: "var(--font-mono)" }}>{t("chat.tabEnter")}</span>
                 </div>
-                <div style={{ maxHeight: "calc(min(48vh, 400px) - 34px)", overflowY: "auto", padding: 4 }}>
+                <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 4 }}>
                   {!indexLoading && atMatches.length === 0 ? (
                     <div style={{ padding: "6px 8px", fontSize: "var(--text-meta)", color: "var(--text-dim)" }}>
                        {needsServerSearch && !serverResultInUse ? t("chat.searching") : t("chat.noMatchingFiles")}
@@ -2712,6 +2751,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         ) : null}
         </div>
         </div>
+          </fieldset>
         </div>
       </div>
     </div>

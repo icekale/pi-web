@@ -375,6 +375,27 @@ test("connects a selected session when another browser reports it running", () =
   assert.match(appShellSource, /onRunningSessionIdsChange=\{handleRunningSessionIdsChange\}/);
 });
 
+test("restoring a running session does not clear an SSE snapshot", () => {
+  const mountSource = source.slice(
+    source.indexOf("  // Load session on mount"),
+    source.indexOf("  useEffect(() => {\n    onSystemPromptChange"),
+  );
+
+  assert.match(mountSource, /dispatch\(\{ type: "resume" \}\)/);
+  assert.doesNotMatch(mountSource, /dispatch\(\{ type: "start" \}\)/);
+});
+
+test("keeps in-flight tool results across an SSE reconnect", () => {
+  const endSource = source.slice(
+    source.indexOf('case "tool_execution_end"'),
+    source.indexOf('case "queue_update"'),
+  );
+  assert.match(endSource, /setActiveToolResults/);
+  assert.match(source, /activeToolResults/);
+  assert.match(chatWindowSource, /for \(const result of activeToolResults\)/);
+  assert.match(chatWindowSource, /toolResults=\{toolResultsMap\}/);
+});
+
 test("shows the latest streamed tool execution progress in the running phase", () => {
   const updateSource = source.slice(
     source.indexOf('case "tool_execution_update"'),

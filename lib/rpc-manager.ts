@@ -29,6 +29,7 @@ import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS, type HeadlessCust
 import { createEmbeddedHostCompatExtension, installEmbeddedHostCompat } from "./embedded-host-compat";
 import { createSubagentRpcCapture, SubagentRpcClient, type SubagentRpcCapture } from "./subagent-rpc";
 import { createReasoningRouterExtension } from "./reasoning-router";
+import { isSessionLeaseActive, leaseExpiresAt } from "./session-liveness";
 
 // ============================================================================
 // Types
@@ -186,6 +187,7 @@ export class AgentSessionWrapper {
   private listeners: EventListener[] = [];
   private pendingUiResponses = new Map<string, PendingUiResponse>();
   private pendingUiRequests = new Map<string, AgentEvent>();
+  private activeToolEvents = new Map<string, AgentEvent>();
   private activeCustomUis = new Map<string, ActiveCustomUi>();
   private extensionStatuses = new Map<string, string>();
   private extensionWidgets = new Map<string, ExtensionWidgetItem>();
@@ -204,6 +206,7 @@ export class AgentSessionWrapper {
   private shutdownPromise: Promise<void> | null = null;
   private sessionShutdownEmitted = false;
   private forceShutdownOnIdle = false;
+  private sessionLeaseExpiresAt = 0;
   private _alive = true;
   private readonly subagentRpcClient: SubagentRpcClient;
   private liveSubagentSessionIds: string[] = [];
@@ -268,6 +271,7 @@ export class AgentSessionWrapper {
       }
       if (IDLE_RESET_EVENT_TYPES.has(event.type)) this.resetIdleTimer();
       this.emit(event);
+      this.trackActiveToolEvent(event);
       if (RUNNING_STATE_EVENT_TYPES.has(event.type)) notifyRunningChange();
     });
     this.resetIdleTimer();
@@ -503,6 +507,16 @@ export class AgentSessionWrapper {
     }
   }
 
+  private trackActiveToolEvent(event: AgentEvent): void {
+    const id = event.toolCallId;
+    if (typeof id !== "string") return;
+    if (event.type === "tool_execution_start" || event.type === "tool_execution_update") {
+      this.activeToolEvents.set(id, event);
+      return;
+    }
+    if (event.type === "tool_execution_end") this.activeToolEvents.delete(id);
+  }
+
   private async acquirePromptAdmission(): Promise<() => void> {
     const previous = this.promptAdmissionTail;
     let release!: () => void;
@@ -519,6 +533,10 @@ export class AgentSessionWrapper {
     if (SESSION_IDLE_TIMEOUT_MS === 0) return;
     if (!this.isRunning()) this.forceShutdownOnIdle = false;
     this.idleTimer = setTimeout(() => {
+      if (this.hasActiveSessionLease()) {
+        this.resetIdleTimer();
+        return;
+      }
       if (this.isRunning() && !this.forceShutdownOnIdle) {
         this.resetIdleTimer();
         return;
@@ -527,6 +545,14 @@ export class AgentSessionWrapper {
         console.error("[pi-web] failed to shut down idle session:", error instanceof Error ? error.message : error);
       });
     }, SESSION_IDLE_TIMEOUT_MS);
+  }
+
+  setSessionLease(expiresAt = leaseExpiresAt()): void {
+    this.sessionLeaseExpiresAt = expiresAt;
+  }
+
+  hasActiveSessionLease(now = Date.now()): boolean {
+    return isSessionLeaseActive(this.sessionLeaseExpiresAt, now);
   }
 
   private isReadonlyStatusCommand(type: string): boolean {
@@ -558,6 +584,7 @@ export class AgentSessionWrapper {
   onEvent(listener: EventListener): () => void {
     this.listeners.push(listener);
     for (const event of this.pendingUiRequests.values()) listener(event);
+    for (const event of this.activeToolEvents.values()) listener(event);
     return () => {
       const i = this.listeners.indexOf(listener);
       if (i !== -1) this.listeners.splice(i, 1);
@@ -1023,6 +1050,7 @@ export class AgentSessionWrapper {
     for (const id of Array.from(this.activeCustomUis.keys())) this.closeCustomUi(id, undefined);
     this.pendingUiResponses.clear();
     this.pendingUiRequests.clear();
+    this.activeToolEvents.clear();
     this.clearExtensionWidgets(false);
 
     const finishDispose = () => {

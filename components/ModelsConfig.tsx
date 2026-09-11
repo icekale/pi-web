@@ -18,6 +18,7 @@ import {
   type ModelCostKey,
 } from "./models-config-helpers";
 import { ModelsConfigNavigator, ProviderIcon } from "./models-config/ModelsConfigNavigator";
+import { ProviderUsageSummary } from "./ProviderUsageSummary";
 import { DialogShell } from "./DialogShell";
 import {
   applySavedModelsConfig,
@@ -1491,6 +1492,7 @@ function OAuthDetail({ provider, onRefresh }: { provider: OAuthProvider; onRefre
           </>
         )}
       </div>
+      {provider.loggedIn && <ProviderUsageSummary providerId={provider.id} />}
     </div>
   );
 }
@@ -1621,6 +1623,7 @@ function ApiKeyDetail({ provider, onRefresh }: { provider: ApiKeyProvider; onRef
            {removing ? t("i18n.removing") : t("i18n.disconnect")}
         </button>
       )}
+      {provider.configured && <ProviderUsageSummary providerId={provider.id} />}
     </div>
   );
 }

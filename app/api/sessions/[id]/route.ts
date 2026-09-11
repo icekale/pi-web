@@ -6,17 +6,64 @@ import {
   resolveSessionIdByPath,
   invalidateSessionPathCache,
   invalidateSessionListCache,
+  listAllSessions,
+  mergeSessionLists,
   buildSessionContext,
   readCachedSessionInfo,
   readSessionHeader,
   readSessionWindow,
 } from "@/lib/session-reader";
 import { sessionPathKey } from "@/lib/paths";
-import { isReservedSubagentSessionName } from "@/lib/session-relations";
-import { getRpcSession } from "@/lib/rpc-manager";
+import { attachSessionRelations, isReservedSubagentSessionName } from "@/lib/session-relations";
+import { getRpcSession, getRpcSessionInfos } from "@/lib/rpc-manager";
+import { jsonResponse } from "@/lib/json-response";
 import { projectTreeForResponse } from "@/lib/project-tree";
 import { computeSessionTotalActiveMs } from "@/lib/session-timing";
 import { parseSessionWindowParams, sliceSessionContext } from "@/lib/session-window";
+import type { SessionInfo } from "@/lib/types";
+
+function isEnoent(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "code" in error && (error as { code: unknown }).code === "ENOENT");
+}
+
+function readJsonlSessionName(filePath: string): string | undefined {
+  const cached = readCachedSessionInfo(filePath)?.name;
+  if (cached) return cached;
+  try {
+    const text = readFileSync(filePath, "utf8");
+    for (const line of text.split("\n")) {
+      if (!line.includes("session_info")) continue;
+      const parsed = JSON.parse(line) as { type?: string; name?: string };
+      if (parsed.type === "session_info" && typeof parsed.name === "string" && parsed.name.trim()) {
+        return parsed.name;
+      }
+    }
+  } catch { /* skip unreadable or malformed */ }
+  return undefined;
+}
+
+function collectSubagentDescendants(sessions: SessionInfo[], rootId: string): SessionInfo[] {
+  const byParent = new Map<string, SessionInfo[]>();
+  for (const session of sessions) {
+    if (session.sessionRole !== "subagent" || !session.parentSessionId) continue;
+    const list = byParent.get(session.parentSessionId) ?? [];
+    list.push(session);
+    byParent.set(session.parentSessionId, list);
+  }
+  const found: SessionInfo[] = [];
+  const queue = [rootId];
+  const seen = new Set<string>([rootId]);
+  while (queue.length) {
+    const current = queue.shift()!;
+    for (const child of byParent.get(current) ?? []) {
+      if (seen.has(child.id)) continue;
+      seen.add(child.id);
+      found.push(child);
+      queue.push(child.id);
+    }
+  }
+  return found;
+}
 
 export async function GET(
   req: Request,
@@ -62,7 +109,7 @@ export async function GET(
         parentSessionId,
         transient: false,
       } : null;
-      return Response.json({
+      return jsonResponse(req, {
         sessionId: id,
         filePath,
         info,
@@ -105,7 +152,7 @@ export async function GET(
       transient: !filePath || !existsSync(filePath),
     } : null;
 
-    return Response.json({
+    return jsonResponse(req, {
       sessionId: id,
       filePath,
       info,
@@ -192,17 +239,59 @@ export async function DELETE(
       invalidateSessionListCache();
       return Response.json({ ok: true });
     }
+
+    let header;
+    try {
+      header = readSessionHeader(filePath);
+    } catch (error) {
+      if (!isEnoent(error)) throw error;
+      const rpc = getRpcSession(id);
+      if (!rpc?.isAlive()) {
+        return Response.json({ error: "Session not found" }, { status: 404 });
+      }
+      await rpc.shutdown();
+      invalidateSessionPathCache(id);
+      invalidateSessionListCache();
+      return Response.json({ ok: true });
+    }
     // The path cache is an index, not an ownership record. Verify the header
     // actually belongs to this id before unlinking or reparenting anything.
-    if (readSessionHeader(filePath)?.id !== id) {
+    if (header?.id !== id) {
       return Response.json({ error: "Session not found" }, { status: 404 });
     }
 
+    let related: SessionInfo[] = [];
+    try {
+      const persisted = await listAllSessions({ force: true });
+      let runtime: SessionInfo[] = [];
+      try { runtime = getRpcSessionInfos(); } catch { /* registry mocks have no inner session */ }
+      related = attachSessionRelations(mergeSessionLists(persisted, runtime));
+    } catch {
+      related = [];
+    }
+    const descendants = collectSubagentDescendants(related, id);
+    const descendantIds = new Set(descendants.map((session) => session.id));
+    const descendantPathKeys = new Set(
+      descendants.filter((session) => session.path).map((session) => sessionPathKey(session.path)),
+    );
+    for (const descendant of descendants) {
+      await getRpcSession(descendant.id)?.shutdown();
+      if (descendant.path) {
+        try {
+          unlinkSync(descendant.path);
+        } catch (error) {
+          if (!isEnoent(error)) throw error;
+        }
+        invalidateSessionPathCache(descendant.id);
+      }
+    }
+
     // Read only the bounded header before deleting.
-    const parentSessionPath = readSessionHeader(filePath)?.parentSession;
+    const parentSessionPath = header.parentSession;
 
     // Stop live child writers before rewriting their files, then re-attach
-    // them to this session's parent (cascade re-parent).
+    // them to this session's parent (cascade re-parent). Subagent descendants
+    // were deleted above instead of being reparented.
     const targetPathKey = sessionPathKey(filePath);
     const dir = dirname(filePath);
     const childPaths: string[] = [];
@@ -212,13 +301,28 @@ export async function DELETE(
       );
       for (const file of files) {
         const childPath = join(dir, file);
-        const header = readSessionHeader(childPath);
+        if (descendantPathKeys.has(sessionPathKey(childPath))) continue;
+        const childHeader = readSessionHeader(childPath);
+        if (childHeader?.id && descendantIds.has(childHeader.id)) continue;
+        if (isReservedSubagentSessionName(readJsonlSessionName(childPath))) {
+          const childId = childHeader?.id || await resolveSessionIdByPath(childPath);
+          if (childId) {
+            await getRpcSession(childId)?.shutdown();
+            invalidateSessionPathCache(childId);
+          }
+          try {
+            unlinkSync(childPath);
+          } catch (error) {
+            if (!isEnoent(error)) throw error;
+          }
+          continue;
+        }
         if (
-          header?.parentSession &&
-          sessionPathKey(header.parentSession) === targetPathKey
+          childHeader?.parentSession &&
+          sessionPathKey(childHeader.parentSession) === targetPathKey
         ) {
           childPaths.push(childPath);
-          const childId = header.id || await resolveSessionIdByPath(childPath);
+          const childId = childHeader.id || await resolveSessionIdByPath(childPath);
           if (childId) await getRpcSession(childId)?.shutdown();
         }
       }
@@ -228,15 +332,19 @@ export async function DELETE(
       try {
         const content = readFileSync(childPath, "utf8");
         const lines = content.split("\n");
-        const header = JSON.parse(lines[0]) as { type?: string; parentSession?: string };
-        header.parentSession = parentSessionPath;
-        lines[0] = JSON.stringify(header);
+        const childHeader = JSON.parse(lines[0]) as { type?: string; parentSession?: string };
+        childHeader.parentSession = parentSessionPath;
+        lines[0] = JSON.stringify(childHeader);
         writeFileSync(childPath, lines.join("\n"));
       } catch { /* skip malformed */ }
     }
 
     await getRpcSession(id)?.shutdown();
-    unlinkSync(filePath);
+    try {
+      unlinkSync(filePath);
+    } catch (error) {
+      if (!isEnoent(error)) throw error;
+    }
     invalidateSessionPathCache(id);
     invalidateSessionListCache();
     return Response.json({ ok: true });

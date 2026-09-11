@@ -9,6 +9,8 @@ export interface AgentEventStreamSession {
   readonly isStreaming: boolean;
   readonly streamingMessage: unknown;
   onEvent(listener: (event: AgentEventLike) => void): () => void;
+  setSessionLease?(expiresAt?: number): void;
+  hasActiveSessionLease?(now?: number): boolean;
 }
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -35,6 +37,7 @@ export function createAgentEventStream(
       let heartbeat: ReturnType<typeof setInterval> | null = null;
       let unsubscribe: (() => void) | null = null;
       let abortHandler: (() => void) | null = null;
+      let leasedSession: AgentEventStreamSession | undefined;
 
       const cleanup = (closeController: boolean) => {
         if (closed) return;
@@ -93,6 +96,8 @@ export function createAgentEventStream(
           unsubscribe = stopListening;
 
           const snapshot = session.streamingMessage;
+          session.setSessionLease?.();
+          leasedSession = session;
           encode({
             type: "connected",
             sessionId,
@@ -125,6 +130,7 @@ export function createAgentEventStream(
       req.signal.addEventListener("abort", abortHandler, { once: true });
 
       heartbeat = setInterval(() => {
+        if (leasedSession?.hasActiveSessionLease?.()) leasedSession.setSessionLease?.();
         enqueueText(":\n\n");
         encode({ type: "heartbeat" });
       }, HEARTBEAT_INTERVAL_MS);
