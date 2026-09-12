@@ -1389,7 +1389,7 @@ export function AppShell() {
           // 上下文压缩后当前消息可能不再包含 user 消息，需同时参考会话文件的消息总数。
           const hasMessages = Boolean(
             selectedSession
-            && ((sessionStats?.userMessages ?? 0) > 0 || selectedSession.messageCount > 0),
+            && ((sessionStats?.userMessages ?? 0) > 0 || (selectedSession.messageCount ?? 0) > 0),
           );
           const disabled = !selectedSession || selectedSession.transient || !hasMessages || autoNameStatus.kind === "naming";
           const isSuccess = autoNameStatus.kind === "success";
@@ -2002,7 +2002,7 @@ export function AppShell() {
               onViewHistory={handleViewFullHistory}
               historyDisabled={!selectedSession}
               onAutoName={() => void handleAutoName()}
-              autoNameDisabled={!selectedSession || selectedSession.transient || !((sessionStats?.userMessages ?? 0) > 0 || selectedSession.messageCount > 0) || autoNameStatus.kind === "naming"}
+              autoNameDisabled={!selectedSession || selectedSession.transient || !((sessionStats?.userMessages ?? 0) > 0 || (selectedSession.messageCount ?? 0) > 0) || autoNameStatus.kind === "naming"}
               onOpenBranches={() => toggleTopPanel("branches", true)}
               onOpenSystem={() => toggleTopPanel("system", true)}
               onToggleFiles={handleRightPanelToggle}

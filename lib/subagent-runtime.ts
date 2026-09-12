@@ -151,6 +151,50 @@ async function cleanupWorktree(
   }
 }
 
+/**
+ * Publish a freshly registered run. Registration is the one moment where a
+ * throwing listener can leak a run: finalize() already swallows progress
+ * failures on every terminal path, but an onUpdate (or session-list
+ * invalidation) that throws here used to leave the entry in getSubagentRuns()
+ * forever — the child then reported "running" for the life of the process and
+ * get_subagent_result(wait: true) span forever. Roll the registration back so
+ * the caller's error is the only trace left behind.
+ */
+/**
+ * Progress reporting is best-effort: a listener or a session-list invalidation that
+ * throws must not fail a child that is already running, and must never strand its run.
+ * Only registerSubagentRun surfaces such an error, because the caller that started the
+ * child is still on the stack to receive it.
+ */
+function notifyProgress(
+  request: { onUpdate?: (run: SubagentRunInfo) => void },
+  run: SubagentRunInfo,
+  invalidateSessionList: () => void,
+): void {
+  try {
+    request.onUpdate?.(run);
+    invalidateSessionList();
+  } catch (error) {
+    reportControlFailure("progress update", error);
+  }
+}
+
+function registerSubagentRun(
+  request: { onUpdate?: (run: SubagentRunInfo) => void },
+  stored: StoredSubagentExecution,
+  invalidateSessionList: () => void,
+): void {
+  const { sessionId } = stored.run;
+  getSubagentRuns().set(sessionId, stored);
+  try {
+    request.onUpdate?.(stored.run);
+    invalidateSessionList();
+  } catch (error) {
+    getSubagentRuns().delete(sessionId);
+    throw error;
+  }
+}
+
 export function createSubagentController(
   dependencies: SubagentRuntimeDependencies,
 ): SubagentController {
@@ -325,9 +369,7 @@ export function createSubagentController(
         completion,
         abortRequested: false,
       };
-      getSubagentRuns().set(initialRun.sessionId, stored);
-      request.onUpdate?.(initialRun);
-      dependencies.invalidateSessionList();
+      registerSubagentRun(request, stored, () => dependencies.invalidateSessionList());
 
       const handleParentAbort = () => {
         stored.abortRequested = true;
@@ -365,8 +407,7 @@ export function createSubagentController(
         }
         stored.run = { ...stored.run, status: "running" };
         sessionManager.appendCustomEntry(SUBAGENT_STATUS_TYPE, { version: 1, status: "running" });
-        request.onUpdate?.(stored.run);
-        dependencies.invalidateSessionList();
+        notifyProgress(request, stored.run, () => dependencies.invalidateSessionList());
         let result: SubagentRunInfo;
         try {
           await inner.prompt(delegatedTask, {
@@ -434,9 +475,8 @@ export function createSubagentController(
           if (state === "queued") {
             sessionManager.appendCustomEntry(SUBAGENT_STATUS_TYPE, { version: 1, status: "queued" });
           }
-          request.onUpdate?.({ ...stored.run, status: state });
           stored.run = { ...stored.run, status: state };
-          dependencies.invalidateSessionList();
+          notifyProgress(request, stored.run, () => dependencies.invalidateSessionList());
         },
         finishQueuedAbort,
       );
@@ -507,9 +547,7 @@ export function createSubagentController(
     // Without it the second prompt threw "Agent is already processing" and appended a
     // bogus failed result to the shared child session.
     if (getSubagentRuns().has(request.sessionId)) throw new Error("Subagent is already running");
-    getSubagentRuns().set(request.sessionId, stored);
-    request.onUpdate?.(initialRun);
-    dependencies.invalidateSessionList();
+    registerSubagentRun(request, stored, () => dependencies.invalidateSessionList());
     const handleParentAbort = () => {
       stored.abortRequested = true;
       if (stored.run.status === "queued") stored.cancelQueued?.();
@@ -541,7 +579,7 @@ export function createSubagentController(
       }
       stored.run = { ...stored.run, status: "running" };
       manager.appendCustomEntry(SUBAGENT_STATUS_TYPE, { version: 1, status: "running" });
-      request.onUpdate?.(stored.run);
+      notifyProgress(request, stored.run, () => dependencies.invalidateSessionList());
       let result: SubagentRunInfo;
       try {
         await wrapper!.inner.prompt(request.task, { source: "rpc" });
@@ -574,8 +612,7 @@ export function createSubagentController(
     const queued = getSubagentQueue().enqueue(parentSessionId, readSubagentSettings().maxConcurrent, execute, (state) => {
       if (state === "queued") manager.appendCustomEntry(SUBAGENT_STATUS_TYPE, { version: 1, status: "queued" });
       stored.run = { ...stored.run, status: state };
-      request.onUpdate?.(stored.run);
-      dependencies.invalidateSessionList();
+      notifyProgress(request, stored.run, () => dependencies.invalidateSessionList());
     }, finishQueuedAbort);
     stored.cancelQueued = queued.cancel;
     void queued.promise.then(resolveCompletion, (error) => {

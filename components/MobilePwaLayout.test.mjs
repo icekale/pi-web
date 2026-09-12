@@ -46,9 +46,9 @@ test("contains chat content and inputs within the mobile viewport", () => {
 
 test("keeps the composer symmetric now that the minimap sits outside the column", () => {
   assert.doesNotMatch(chatInputSource, /minimapOffset/);
-  assert.match(chatInputSource, /padding: "0 16px 8px"/);
+  assert.match(chatInputSource, /padding: compact \? 0 : "0 16px 8px",/);
   assert.doesNotMatch(chatWindowSource, /minimapOffset/);
-  assert.match(chatWindowSource, /const ChatMinimap = lazy\(\(\) => import\("\.\/ChatMinimap"\)/);
+  assert.match(chatWindowSource, /const ChatMinimap = lazy\(\(\) => import\("\.\/ChatMinimap"\)\.then\(/);
   assert.match(chatWindowSource, /<ChatMinimap[\s\S]*desktop-workspace-context/);
 });
 
@@ -58,8 +58,12 @@ test("prevents iOS focus zoom from widening the layout", () => {
 
 test("uses a restrained DSCode desktop composer without changing mobile sizing", () => {
   assert.match(chatInputSource, /className=\{`composer-shell\$\{/);
-  assert.match(chatInputSource, /borderRadius: isMobile \? 20 : 12/);
-  assert.match(chatInputSource, /boxShadow: isMobile[\s\S]*?0 2px 12px rgba\(0,0,0,0\.06\)[\s\S]*?: "0 2px 8px rgba\(0,0,0,0\.05\)"/);
+  // Compact mode drops the chrome entirely; mobile keeps the 20px capsule and the
+  // desktop column keeps the restrained 12px radius and 2px shadow.
+  assert.match(chatInputSource, /borderRadius: compact \? 0 : isMobile \? 20 : 12,/);
+  assert.match(chatInputSource, /boxShadow: compact \? "none" : isMobile/);
+  assert.match(chatInputSource, /"0 2px 12px rgba\(0,0,0,0\.06\)"/);
+  assert.match(chatInputSource, /"0 2px 8px rgba\(0,0,0,0\.05\)"/);
   assert.match(chatInputSource, /maxWidth: isMobile \? undefined : 780/);
   assert.match(chatInputSource, /width: 28, height: 28/);
 });

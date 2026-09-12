@@ -6,6 +6,7 @@ import { basename, dirname, join, resolve } from "path";
 import { parseFrontmatter } from "./frontmatter";
 import { writePrivateFileAtomicSync } from "./atomic-file";
 import { isExistingPathWithinRoots } from "./path-security";
+import { getProjectTrustStatus } from "./project-trust";
 import { PRESET_READ_ONLY } from "./tool-presets";
 import type { SessionEntry, SubagentSessionStatus } from "./types";
 
@@ -319,8 +320,30 @@ function isProjectProfilePathAllowed(cwd: string, target: string): boolean {
   return isExistingPathWithinRoots(target, new Set([cwd]));
 }
 
-function readProfileDirectory(dir: string, scope: SubagentScope, cwd: string): SubagentProfile[] {
+/**
+ * Workspace- and project-scope profiles are files a repository ships
+ * (`.agents/agents`, `.pi/agents`), so they carry the tools, model, and system
+ * prompt of an agent this session can run. Gate them behind the same project
+ * trust decision the SDK applies to `.pi/skills`, `.pi/prompts`, and
+ * `.agents/skills`: opening an untrusted repository must not let it redefine a
+ * built-in profile by name.
+ * ponytail: a repository whose only pi resource is an agents directory never
+ * trips the SDK's TRUST_REQUIRING_PROJECT_CONFIG_RESOURCES, so it still counts
+ * as trusted; add "agents" to that list if repository profiles must need an
+ * explicit decision in that case too.
+ */
+function areProjectProfilesTrusted(cwd: string): boolean {
+  return getProjectTrustStatus(cwd, getAgentDir()).trusted;
+}
+
+function readProfileDirectory(
+  dir: string,
+  scope: SubagentScope,
+  cwd: string,
+  projectTrusted: boolean,
+): SubagentProfile[] {
   if (!existsSync(dir)) return [];
+  if (scope !== "global" && !projectTrusted) return [];
   if (scope !== "global" && !isProjectProfilePathAllowed(cwd, dir)) return [];
   return readdirSync(dir, { withFileTypes: true })
     .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
@@ -339,16 +362,18 @@ function profileDirectories(cwd: string): Array<[string, Exclude<SubagentScope, 
 /** Every configured source, including profiles shadowed by a higher-precedence scope. */
 export function listSubagentProfileSources(cwd: string): SubagentProfile[] {
   const profiles = BUILTIN_PROFILES.map((profile) => ({ ...profile, tools: [...profile.tools] }));
+  const projectTrusted = areProjectProfilesTrusted(cwd);
   for (const [dir, scope] of profileDirectories(cwd)) {
-    profiles.push(...readProfileDirectory(dir, scope, cwd));
+    profiles.push(...readProfileDirectory(dir, scope, cwd, projectTrusted));
   }
   return profiles.sort((a, b) => a.displayName.localeCompare(b.displayName));
 }
 
 export function listSubagentProfiles(cwd: string): SubagentProfile[] {
   const byName = new Map(BUILTIN_PROFILES.map((profile) => [profile.name.toLowerCase(), { ...profile, tools: [...profile.tools] }]));
+  const projectTrusted = areProjectProfilesTrusted(cwd);
   for (const [dir, scope] of profileDirectories(cwd)) {
-    for (const profile of readProfileDirectory(dir, scope, cwd)) byName.set(profile.name.toLowerCase(), profile);
+    for (const profile of readProfileDirectory(dir, scope, cwd, projectTrusted)) byName.set(profile.name.toLowerCase(), profile);
   }
   return [...byName.values()].sort((a, b) => a.displayName.localeCompare(b.displayName));
 }

@@ -46,5 +46,11 @@ test("model-list refresh does not overwrite a live session or explicit thinking 
     loadModelsSource,
     /thinkingLevelOverrideRef\.current === null/,
   );
-  assert.match(loadModelsSource, /setThinkingLevel\(\(pinned[\s\S]*\?\? "auto"\)/);
+  // The pin rule now lives in the shared desiredThinkingLevel helper: assert the
+  // refresh path feeds it the pins instead of re-deriving the rule here.
+  assert.match(
+    loadModelsSource,
+    /const next = desiredThinkingLevel\(displayModel\.provider, displayModel\.id, nextLevels, nextPins\)/,
+  );
+  assert.match(loadModelsSource, /if \(next !== "auto"\) \{/);
 });

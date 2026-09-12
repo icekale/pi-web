@@ -5,10 +5,10 @@ import test from "node:test";
 test("read-only child mount loads history without the live state endpoint", async () => {
   const hookSource = await readFile(new URL("../hooks/useAgentSession.ts", import.meta.url), "utf8");
   const mountLoad = hookSource.slice(
-    hookSource.indexOf("loadSession(session.id, true,"),
-    hookSource.indexOf("loadSession(session.id, true,") + 80,
+    hookSource.indexOf("void loadSession(sid, true,"),
+    hookSource.indexOf("void loadSession(sid, true,") + 60,
   );
-  assert.match(mountLoad, /loadSession\(session\.id, true, !opts\.readOnlyHistory\)/);
+  assert.match(mountLoad, /loadSession\(sid, true, !opts\.readOnlyHistory\)/);
 });
 
 test("read-only refresh reloads persisted context with includeState false only", async () => {

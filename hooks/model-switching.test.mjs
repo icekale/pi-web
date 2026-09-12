@@ -11,6 +11,10 @@ const switchSource = source.slice(
   source.indexOf("const handleModelChange = useCallback"),
   source.indexOf("const handleCompact = useCallback"),
 );
+const thinkingSource = source.slice(
+  source.indexOf("const applyDesiredThinkingLevel ="),
+  source.indexOf("const handleModelChange = useCallback"),
+);
 
 test("existing-session model changes are optimistic and serialized", () => {
   const optimisticIndex = switchSource.indexOf("setCurrentModelOverride(target)");
@@ -31,7 +35,10 @@ test("session reloads cannot clear an in-flight optimistic model", () => {
 });
 
 test("a completed model switch applies server thinking without reloading the session", () => {
-  assert.match(switchSource, /if \(result\.thinkingLevel !== undefined\) setThinkingLevel\(result\.thinkingLevel\)/);
+  // The switch hands the server's clamped level to the shared helper, which applies
+  // the pin rule and only then falls back to the server level.
+  assert.match(switchSource, /await applyDesiredThinkingLevel\(sid, provider, modelId, result\.thinkingLevel\)/);
+  assert.match(thinkingSource, /if \(serverLevel !== undefined\) setThinkingLevel\(serverLevel\)/);
   assert.doesNotMatch(switchSource, /modelSwitchPendingRef\.current = false;\s*await loadSession\(sid\)/);
   assert.match(switchSource, /setCurrentModelOverride\(previousOverride\)/);
   assert.match(switchSource, /Failed to switch model:/);

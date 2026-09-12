@@ -1445,10 +1445,10 @@ html.dark .codex-project-menu button.danger { color: var(--error); }
 .codex-changes-row[data-status="conflict"] { color: var(--error); }
 html.dark .codex-changes-row[data-status="conflict"] { color: var(--error); }
 .codex-changes-letter {
-  width: 12px;
+  width: 14px;
   flex-shrink: 0;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-meta);
   font-weight: 600;
 }
 .codex-changes-name {

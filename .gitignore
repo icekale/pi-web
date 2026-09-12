@@ -49,4 +49,8 @@ next-env.d.ts
 /playwright-report/
 
 # production build output (never commit; built outside the repo)
+# no trailing slash: the deployed `.output` is a symlink to a /tmp build
+.output
 .output/
+.tanstack/
+.impeccable/critique/

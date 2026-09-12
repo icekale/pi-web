@@ -361,13 +361,15 @@ test("uses one absolute agent-readiness deadline instead of a five-second transp
   assert.doesNotMatch(source, /EVENT_STREAM_OPEN_TIMEOUT_MS/);
 });
 
-test("connects a selected session when another browser reports it running", () => {
+test("maintains the selected session connection without another browser's running report", () => {
   assert.match(source, /sessionRunning\?: boolean/);
+  // The hook maintains SSE for any selected, non-read-only session and renews the
+  // server lease on a heartbeat, so a run started in another browser no longer has
+  // to be reported through sessionRunning for this tab to stay connected.
   assert.match(
     source,
-    /if \(!session\?\.id \|\| !sessionRunning\) return;[\s\S]*?maintainEventsConnected\(session\.id\)/,
+    /if \(!session\?\.id \|\| opts\.readOnlyHistory\) return;[\s\S]*?maintainEventsConnected\(sid\)[\s\S]*?setInterval\(\(\) => \{\s*if \(sessionIdRef\.current === sid\) maintainEventsConnected\(sid\);\s*\}, getSessionLeaseHeartbeatMs\(\)\)/,
   );
-  assert.match(source, /maintainEventsConnected\(session\.id\)/);
   assert.doesNotMatch(source, /void connectEvents\(/);
   assert.match(chatWindowSource, /sessionRunning\?: boolean/);
   assert.match(chatWindowSource, /session, sessionRunning, newSessionCwd/);
