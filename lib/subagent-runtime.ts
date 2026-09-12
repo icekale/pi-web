@@ -92,6 +92,23 @@ function getSubagentQueue(): SubagentQueue<SubagentRunInfo> {
   return globalThis.__piSubagentQueue;
 }
 
+/** A fire-and-forget steer/abort must not become a silent lost rejection. */
+function reportControlFailure(action: string, error: unknown): void {
+  console.warn(`[pi-web] subagent ${action} failed:`, error instanceof Error ? error.message : String(error));
+}
+
+/**
+ * A preset that permits delegation must not become escapable: the child may only use tools the
+ * parent itself could use, so a read-only parent cannot ask general-purpose to edit files.
+ * `undefined` means the parent exposes no tool list (a partial test double, or a session type
+ * without the getter) and the profile decides. Applied after shell-tool resolution so both
+ * sides are compared as resolved names.
+ */
+export function intersectSubagentTools(tools: readonly string[], parentToolNames: readonly string[] | undefined): string[] {
+  if (!parentToolNames) return [...tools];
+  return tools.filter((name) => parentToolNames.includes(name));
+}
+
 function parseSubagentModel(runtime: ModelRuntime, value: string | undefined) {
   if (!value?.trim()) return undefined;
   const requested = value.trim();
@@ -209,9 +226,12 @@ export function createSubagentController(
           ? selectSubagentExtensionTools(services.resourceLoader.getExtensions().extensions, profile.extensionTools)
           : services.resourceLoader.getExtensions().extensions.flatMap((extension) => [...extension.tools.keys()])
         : [];
-      const activeTools = resolveShellTools(
-        withSubagentExtensionTools(profile.tools, extensionToolNames),
-        settingsManager.getDefaultTools(),
+      const activeTools = intersectSubagentTools(
+        resolveShellTools(
+          withSubagentExtensionTools(profile.tools, extensionToolNames),
+          settingsManager.getDefaultTools(),
+        ),
+        parent.inner.getActiveToolNames?.(),
       );
 
       const sessionManager = isolatedWorktree
@@ -284,10 +304,12 @@ export function createSubagentController(
             turnCount += 1;
             if (!softLimitReached && turnCount >= turnLimit) {
               softLimitReached = true;
-              void inner.steer("You have reached your turn limit. Wrap up immediately and provide your final answer now.");
+              void inner
+                .steer("You have reached your turn limit. Wrap up immediately and provide your final answer now.")
+                .catch((error) => reportControlFailure("turn-limit steer", error));
             } else if (softLimitReached && turnCount >= turnLimit + 1) {
               maxTurnsReached = true;
-              void inner.abort();
+              void inner.abort().catch((error) => reportControlFailure("turn-limit abort", error));
             }
           })
         : () => {};
@@ -305,20 +327,36 @@ export function createSubagentController(
       const handleParentAbort = () => {
         stored.abortRequested = true;
         if (stored.run.status === "queued") stored.cancelQueued?.();
-        else void inner.abort();
+        else void inner.abort().catch((error) => reportControlFailure("parent abort", error));
       };
       if (!runInBackground) request.signal?.addEventListener("abort", handleParentAbort, { once: true });
+
+      // Every terminal path (pre-abort, queued abort, completion, rejected queue item)
+      // funnels through here. A path that skipped this cleanup left the run in
+      // getSubagentRuns() forever — the child then reported "running" even after a
+      // restart and get_subagent_result(wait: true) span forever — or left the
+      // turn-limit listener armed for a later resume of the same child.
+      const finalize = (result: SubagentRunInfo): SubagentRunInfo => {
+        unsubscribeTurns();
+        request.signal?.removeEventListener("abort", handleParentAbort);
+        stored.run = result;
+        getSubagentRuns().delete(initialRun.sessionId);
+        dependencies.invalidateSessionList();
+        try {
+          request.onUpdate?.(result);
+        } catch (error) {
+          // Progress reporting is best-effort; the run's own state must stay consistent.
+          reportControlFailure("progress update", error);
+        }
+        return result;
+      };
 
       const execute = async (): Promise<SubagentRunInfo> => {
         if (stored.abortRequested) {
           const result: SubagentRunInfo = { ...initialRun, status: "aborted", completedAt: new Date().toISOString() };
           sessionManager.appendCustomEntry(SUBAGENT_RESULT_TYPE, { version: 1, status: "aborted", completedAt: result.completedAt });
           await cleanupWorktree(parent.cwd, isolatedWorktree);
-          stored.run = result;
-          request.onUpdate?.(result);
-          getSubagentRuns().delete(initialRun.sessionId);
-          dependencies.invalidateSessionList();
-          return result;
+          return finalize(result);
         }
         stored.run = { ...stored.run, status: "running" };
         sessionManager.appendCustomEntry(SUBAGENT_STATUS_TYPE, { version: 1, status: "running" });
@@ -358,9 +396,6 @@ export function createSubagentController(
               ? { error: error instanceof Error ? error.message : String(error) }
               : {}),
           };
-        } finally {
-          unsubscribeTurns();
-          request.signal?.removeEventListener("abort", handleParentAbort);
         }
 
         const cleanupError = await cleanupWorktree(parent.cwd, isolatedWorktree);
@@ -374,11 +409,7 @@ export function createSubagentController(
           ...(result.worktreeCleanupError ? { worktreeCleanupError: result.worktreeCleanupError } : {}),
         };
         sessionManager.appendCustomEntry(SUBAGENT_RESULT_TYPE, persisted);
-        stored.run = result;
-        request.onUpdate?.(result);
-        getSubagentRuns().delete(initialRun.sessionId);
-        dependencies.invalidateSessionList();
-        return result;
+        return finalize(result);
       };
 
       const finishQueuedAbort = async () => {
@@ -387,10 +418,7 @@ export function createSubagentController(
         const cleanupError = await cleanupWorktree(parent.cwd, isolatedWorktree);
         const finalResult = cleanupError ? { ...result, worktreeCleanupError: cleanupError } : result;
         sessionManager.appendCustomEntry(SUBAGENT_RESULT_TYPE, { version: 1, status: "aborted", completedAt: finalResult.completedAt, ...(cleanupError ? { worktreeCleanupError: cleanupError } : {}) });
-        stored.run = finalResult;
-        request.onUpdate?.(finalResult);
-        getSubagentRuns().delete(initialRun.sessionId);
-        dependencies.invalidateSessionList();
+        finalize(finalResult);
         resolveCompletion(finalResult);
       };
       const queued = getSubagentQueue().enqueue(
@@ -409,7 +437,22 @@ export function createSubagentController(
       );
       stored.cancelQueued = queued.cancel;
       void queued.promise.then(resolveCompletion, (error) => {
-        resolveCompletion({ ...initialRun, status: "failed", completedAt: new Date().toISOString(), error: error instanceof Error ? error.message : String(error) });
+        // Mirrors finishQueuedAbort: a rejected queue item is a terminal path too.
+        // Without this the run stayed in getSubagentRuns() and the child kept
+        // reporting "running" forever, since execute() may never have reached its tail.
+        const message = error instanceof Error ? error.message : String(error);
+        const result: SubagentRunInfo = {
+          ...initialRun,
+          status: "failed",
+          completedAt: new Date().toISOString(),
+          error: message,
+        };
+        try {
+          sessionManager.appendCustomEntry(SUBAGENT_RESULT_TYPE, { version: 1, status: "failed", completedAt: result.completedAt!, error: message });
+        } catch {
+          // The child session may be unwritable — the exact failure being reported.
+        }
+        resolveCompletion(finalize(result));
       });
 
       return { run: stored.run, completion: stored.completion };
@@ -454,22 +497,40 @@ export function createSubagentController(
     let resolveCompletion!: (run: SubagentRunInfo) => void;
     const completion = new Promise<SubagentRunInfo>((resolve) => { resolveCompletion = resolve; });
     const stored: StoredSubagentExecution = { run: initialRun, completion, abortRequested: false };
+    // has() followed by set() with no await between them: two parallel resumes of the
+    // same child both pass the status checks above, so the map is the only atomic guard.
+    // Without it the second prompt threw "Agent is already processing" and appended a
+    // bogus failed result to the shared child session.
+    if (getSubagentRuns().has(request.sessionId)) throw new Error("Subagent is already running");
     getSubagentRuns().set(request.sessionId, stored);
     request.onUpdate?.(initialRun);
     dependencies.invalidateSessionList();
     const handleParentAbort = () => {
       stored.abortRequested = true;
       if (stored.run.status === "queued") stored.cancelQueued?.();
-      else void wrapper!.inner.abort();
+      else void wrapper!.inner.abort().catch((error) => reportControlFailure("parent abort", error));
     };
     if (!runInBackground) request.signal?.addEventListener("abort", handleParentAbort, { once: true });
+
+    // Mirrors start(): every terminal path finalizes the run exactly once.
+    const finalize = (result: SubagentRunInfo): SubagentRunInfo => {
+      request.signal?.removeEventListener("abort", handleParentAbort);
+      stored.run = result;
+      getSubagentRuns().delete(request.sessionId);
+      dependencies.invalidateSessionList();
+      try {
+        request.onUpdate?.(result);
+      } catch (error) {
+        reportControlFailure("progress update", error);
+      }
+      return result;
+    };
 
     const execute = async (): Promise<SubagentRunInfo> => {
       if (stored.abortRequested) {
         const result: SubagentRunInfo = { ...initialRun, status: "aborted", completedAt: new Date().toISOString() };
         manager.appendCustomEntry(SUBAGENT_RESULT_TYPE, { version: 1, status: "aborted", completedAt: result.completedAt });
-        stored.run = result;
-        getSubagentRuns().delete(request.sessionId);
+        finalize(result);
         resolveCompletion(result);
         return result;
       }
@@ -488,8 +549,6 @@ export function createSubagentController(
           completedAt: new Date().toISOString(),
           ...(!stored.abortRequested && !request.signal?.aborted ? { error: error instanceof Error ? error.message : String(error) } : {}),
         };
-      } finally {
-        request.signal?.removeEventListener("abort", handleParentAbort);
       }
       manager.appendCustomEntry(SUBAGENT_RESULT_TYPE, {
         version: 1,
@@ -498,20 +557,13 @@ export function createSubagentController(
         ...(result.result ? { result: result.result } : {}),
         ...(result.error ? { error: result.error } : {}),
       });
-      stored.run = result;
-      request.onUpdate?.(result);
-      getSubagentRuns().delete(request.sessionId);
-      dependencies.invalidateSessionList();
-      return result;
+      return finalize(result);
     };
     const finishQueuedAbort = () => {
       if (stored.run.status !== "queued") return;
       const result: SubagentRunInfo = { ...initialRun, status: "aborted", completedAt: new Date().toISOString() };
       manager.appendCustomEntry(SUBAGENT_RESULT_TYPE, { version: 1, status: "aborted", completedAt: result.completedAt });
-      stored.run = result;
-      request.onUpdate?.(result);
-      getSubagentRuns().delete(request.sessionId);
-      dependencies.invalidateSessionList();
+      finalize(result);
       resolveCompletion(result);
     };
     const queued = getSubagentQueue().enqueue(parentSessionId, readSubagentSettings().maxConcurrent, execute, (state) => {
@@ -521,7 +573,21 @@ export function createSubagentController(
       dependencies.invalidateSessionList();
     }, finishQueuedAbort);
     stored.cancelQueued = queued.cancel;
-    void queued.promise.then(resolveCompletion, (error) => resolveCompletion({ ...initialRun, status: "failed", completedAt: new Date().toISOString(), error: error instanceof Error ? error.message : String(error) }));
+    void queued.promise.then(resolveCompletion, (error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      const result: SubagentRunInfo = {
+        ...initialRun,
+        status: "failed",
+        completedAt: new Date().toISOString(),
+        error: message,
+      };
+      try {
+        manager.appendCustomEntry(SUBAGENT_RESULT_TYPE, { version: 1, status: "failed", completedAt: result.completedAt!, error: message });
+      } catch {
+        // The child session may be unwritable — the exact failure being reported.
+      }
+      resolveCompletion(finalize(result));
+    });
     return { run: stored.run, completion };
   }
 

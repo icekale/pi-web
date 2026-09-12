@@ -104,7 +104,7 @@ export function subagentToolDetails(run: SubagentRunInfo): SubagentToolDetails {
 }
 
 export function subagentFinalText(run: SubagentRunInfo): string {
-  if (run.status === "starting" || run.status === "running") {
+  if (run.status === "starting" || run.status === "running" || run.status === "queued") {
     return `Subagent ${run.sessionId} is ${run.status}.`;
   }
   if (run.status === "completed") return run.result?.trim() || "Subagent completed without text output.";
@@ -232,7 +232,7 @@ export function createSubagentExtension(
         async execute(_toolCallId, params, signal) {
           let run = await runtime.get(params.agent_id);
           if (!run) return { content: [{ type: "text", text: `Subagent not found: ${params.agent_id}` }], details: undefined, isError: true };
-          while (params.wait && (run.status === "starting" || run.status === "running")) {
+          while (params.wait && (run.status === "starting" || run.status === "running" || run.status === "queued")) {
             await new Promise<void>((resolve, reject) => {
               const onAbort = () => {
                 clearTimeout(timer);

@@ -21,6 +21,21 @@ export interface EnqueuedSubagent<T> {
   cancel(): boolean;
 }
 
+/**
+ * A state notification is bookkeeping for the caller: a throw from it must never
+ * drop the item, start it invisibly, or leave its promise unsettled.
+ */
+function notifyState(onState: (state: SubagentQueueState) => void, state: SubagentQueueState): void {
+  try {
+    onState(state);
+  } catch (error) {
+    console.warn(
+      "[pi-web] subagent queue state notification failed:",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
 /** FIFO per parent session; separate parents do not block one another. */
 export class SubagentQueue<T> {
   private readonly parents = new Map<string, ParentQueue<T>>();
@@ -40,7 +55,7 @@ export class SubagentQueue<T> {
     });
     parent.items.push(item);
     this.parents.set(parentId, parent);
-    onState("queued");
+    notifyState(onState, "queued");
     this.pump(parentId, parent);
     return {
       promise,
@@ -62,7 +77,7 @@ export class SubagentQueue<T> {
       const item = parent.items.shift()!;
       if (item.cancelled) continue;
       item.state = "running";
-      item.onState("running");
+      notifyState(item.onState, "running");
       parent.active += 1;
       void item.run().then(item.resolve, item.reject).finally(() => {
         parent.active -= 1;
