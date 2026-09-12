@@ -19,7 +19,7 @@ import { formatExtensionWidgetContent } from "./ExtensionWidgets";
 
 export interface SubagentTreeCallbacks {
   onSelect(node: SubagentTreeNode): void;
-  onControl(action: "steer" | "interrupt" | "resume", childSessionId: string, message?: string): Promise<void>;
+  onControl(action: "steer" | "interrupt", childSessionId: string, message?: string): Promise<void>;
 }
 
 export const ACTIVE_ROW_STATES: ReadonlySet<SubagentLifecycleState> = new Set([
@@ -29,12 +29,10 @@ export const ACTIVE_ROW_STATES: ReadonlySet<SubagentLifecycleState> = new Set([
   "needs_attention",
 ]);
 
-/** Which composer action applies to a node, if any. */
-export function submitActionFor(node: SubagentTreeNode): "steer" | "resume" | null {
+/** Which composer action applies to a node, if any. Only a run the server says it can steer gets one. */
+export function submitActionFor(node: SubagentTreeNode): "steer" | null {
   if (node.sessionId === null) return null;
-  if (ACTIVE_ROW_STATES.has(node.state)) return "steer";
-  if (node.state === "paused") return "resume";
-  return null;
+  return node.canSteer ? "steer" : null;
 }
 
 export function formatElapsed(ms: number): string {
@@ -621,7 +619,7 @@ export function SubagentComposer({
 }: {
   node: SubagentTreeNode;
   rpcAvailable: boolean;
-  onControl(action: "steer" | "resume", message: string): Promise<void>;
+  onControl(action: "steer", message: string): Promise<void>;
   onInterrupt(): Promise<void>;
 }) {
   const { t } = useI18n();
@@ -679,7 +677,7 @@ export function SubagentComposer({
     );
   }
 
-  const placeholder = action === "resume" ? t("subagents.resumePlaceholder") : t("subagents.steerPlaceholder");
+  const placeholder = t("subagents.steerPlaceholder");
 
   return (
     <div
@@ -757,7 +755,7 @@ export function SubagentComposer({
         <button
           type="button"
           disabled={busy || value.trim().length === 0}
-          aria-label={action === "resume" ? t("subagents.resume") : t("subagents.steer")}
+          aria-label={t("subagents.steer")}
           onClick={() => void submit()}
           style={{
             display: "inline-flex",
@@ -777,7 +775,7 @@ export function SubagentComposer({
           }}
         >
           <Send size={13} strokeWidth={2} aria-hidden="true" />
-          {action === "resume" ? t("subagents.resume") : t("subagents.steer")}
+          {t("subagents.steer")}
         </button>
       </div>
     </div>

@@ -8,7 +8,7 @@ const { shouldPollSubagents, hasActiveDescendant, nextTranscriptGeneration, SUBA
   await jiti.import("./useSubagentTree.ts");
 
 function node(state, children = []) {
-  return { sessionId: "x", parentSessionId: "root", runId: "r", agent: "a", task: "t", state, canSteer: false, canInterrupt: false, canResume: false, children };
+  return { sessionId: "x", parentSessionId: "root", runId: "r", agent: "a", task: "t", state, canSteer: false, canInterrupt: false, children };
 }
 
 test("polling is enabled for each approved condition and disabled only when all are false", () => {

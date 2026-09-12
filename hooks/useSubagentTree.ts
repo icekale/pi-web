@@ -64,7 +64,7 @@ export function useSubagentTree(input: {
   error: string | null;
   transcriptRefreshGeneration: number;
   refresh(): Promise<void>;
-  control(action: "steer" | "interrupt" | "resume", childSessionId: string, message?: string): Promise<void>;
+  control(action: "steer" | "interrupt", childSessionId: string, message?: string): Promise<void>;
 } {
   const { rootId, treeOpen, childSelected } = input;
   const [data, setData] = useState<SubagentTreeResponse | null>(null);
@@ -170,7 +170,7 @@ export function useSubagentTree(input: {
   }, []);
 
   const control = useCallback(async (
-    action: "steer" | "interrupt" | "resume",
+    action: "steer" | "interrupt",
     childSessionId: string,
     message?: string,
   ): Promise<void> => {

@@ -1781,8 +1781,8 @@ const SUBAGENT_CONTROLLER = createSubagentController({
   isBuiltInSubagentsEnabled,
 });
 
-export function getSubagentRun(sessionId: string) {
-  return SUBAGENT_CONTROLLER.get(sessionId);
+export function listSubagentRuns() {
+  return SUBAGENT_CONTROLLER.listRuns();
 }
 
 export function steerSubagent(sessionId: string, message: string) {

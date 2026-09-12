@@ -142,7 +142,6 @@ export interface SubagentTreeNode {
   elapsedMs?: number;
   canSteer: boolean;
   canInterrupt: boolean;
-  canResume: boolean;
   children: SubagentTreeNode[];
 }
 
@@ -156,7 +155,7 @@ export interface SubagentTreeResponse {
 
 export interface SubagentControlRequest {
   childSessionId: string;
-  action: "steer" | "interrupt" | "resume";
+  action: "steer" | "interrupt";
   message?: string;
 }
 

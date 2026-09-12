@@ -8,7 +8,7 @@ import {
 import {
   abortSubagent,
   getRpcSession,
-  getSubagentRun,
+  listSubagentRuns,
   notifyRunningChange,
   startRpcSession,
   steerSubagent,
@@ -17,6 +17,7 @@ import {
 import { listAllSessions, resolveSessionPath } from "@/lib/session-reader";
 import type { SubagentTreeResponse, SubagentControlResponse } from "@/lib/api-types";
 import type { SessionInfo } from "@/lib/types";
+import type { SubagentRunInfo } from "@/lib/subagents";
 
 // ============================================================================
 // GET  /api/agent/[rootId]/subagents
@@ -33,7 +34,8 @@ export interface SubagentRouteDeps {
   startWrapper: (id: string, filePath: string) => Promise<{ session: AgentSessionWrapper }>;
   resolveSessionPath: (id: string) => Promise<string | null>;
   isChildRunning: (id: string) => boolean;
-  getSubagentRun: (childSessionId: string) => Promise<{ profile?: string; description?: string; createdAt?: string } | null>;
+  /** In-memory runs the controller still holds: exactly the queued and running children. */
+  listSubagentRuns: () => readonly SubagentRunInfo[];
   steerSubagent: (childSessionId: string, message: string) => Promise<void>;
   abortSubagent: (childSessionId: string) => Promise<void>;
 }
@@ -48,7 +50,7 @@ const defaultDeps: SubagentRouteDeps = {
   resolveSessionPath: async (id) => resolveSessionPath(id),
   // Built-in children run in-process, so the child's own wrapper is the truth.
   isChildRunning: (id) => getRpcSession(id)?.isRunning() === true,
-  getSubagentRun: (childSessionId) => getSubagentRun(childSessionId),
+  listSubagentRuns: () => listSubagentRuns(),
   steerSubagent,
   abortSubagent,
 };
@@ -65,18 +67,18 @@ async function startRootWrapper(rootId: string, deps: SubagentRouteDeps): Promis
   }
 }
 
-/** Runtime metadata for children that are still live, used to label tree nodes. */
-async function liveRunMeta(
-  sessions: SessionInfo[],
-  deps: SubagentRouteDeps,
-): Promise<Map<string, { profile?: string; description?: string; createdAt?: string }>> {
-  const meta = new Map<string, { profile?: string; description?: string; createdAt?: string }>();
-  for (const session of attachSessionRelations(sessions)) {
-    if (session.sessionRole !== "subagent" || !deps.isChildRunning(session.id)) continue;
-    const run = await deps.getSubagentRun(session.id);
-    if (run) meta.set(session.id, run);
+/** Runtime metadata for the children the controller still holds, keyed by child session id. */
+function heldRunMeta(deps: SubagentRouteDeps, sessions: SessionInfo[]): Map<string, SubagentRunInfo> {
+  const held = new Map<string, SubagentRunInfo>();
+  const related = new Set(
+    attachSessionRelations(sessions)
+      .filter((session) => session.sessionRole === "subagent")
+      .map((session) => session.id),
+  );
+  for (const run of deps.listSubagentRuns()) {
+    if (related.has(run.sessionId)) held.set(run.sessionId, run);
   }
-  return meta;
+  return held;
 }
 
 async function liveRuns(
@@ -84,7 +86,9 @@ async function liveRuns(
   sessions: SessionInfo[],
   deps: SubagentRouteDeps,
 ): Promise<ReturnType<typeof collectLiveSubagentRuns>> {
-  const meta = await liveRunMeta(sessions, deps);
+  // The controller's run map is in memory and holds exactly the children that are
+  // queued or running, so labeling and stating a live node costs no session read.
+  const meta = heldRunMeta(deps, sessions);
   return collectLiveSubagentRuns(rootId, sessions, {
     isRunning: (sessionId) => deps.isChildRunning(sessionId),
     getRun: (sessionId) => meta.get(sessionId) ?? null,
@@ -158,7 +162,7 @@ export function createSubagentHandlers(deps: SubagentRouteDeps = defaultDeps) {
         message?: unknown;
       };
       const action = body.action;
-      if (action !== "steer" && action !== "interrupt" && action !== "resume") {
+      if (action !== "steer" && action !== "interrupt") {
         return Response.json({ error: "Unsupported subagent control action" }, { status: 400 });
       }
       if (typeof body.childSessionId !== "string" || body.childSessionId.length === 0) {
@@ -186,12 +190,8 @@ export function createSubagentHandlers(deps: SubagentRouteDeps = defaultDeps) {
       try {
         if (action === "interrupt") {
           await deps.abortSubagent(body.childSessionId);
-        } else if (action === "steer") {
-          await deps.steerSubagent(body.childSessionId, (body.message as string).trim());
         } else {
-          // Resuming a finished child restarts it under the built-in runtime,
-          // which only the parent's Agent tool can request.
-          return Response.json({ error: "Resuming a subagent is not supported here" }, { status: 400 });
+          await deps.steerSubagent(body.childSessionId, (body.message as string).trim());
         }
 
         const runs = await liveRuns(rootId, sessions, deps);

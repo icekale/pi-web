@@ -7,7 +7,7 @@ const jiti = createJiti(import.meta.url, { jsx: { runtime: "automatic" }, tsconf
 const { countSubagentNodes, findSubagentNode, buildBreadcrumbItems } = await jiti.import("./SubagentSessions.tsx");
 
 function node(sessionId, task, children = [], parentSessionId = "") {
-  return { sessionId, parentSessionId, runId: "r", index: 1, agent: "a", task, state: "running", canSteer: false, canInterrupt: false, canResume: false, children };
+  return { sessionId, parentSessionId, runId: "r", index: 1, agent: "a", task, state: "running", canSteer: false, canInterrupt: false, children };
 }
 
 test("root identity uses rootSessionId and falls back to the selected session", async () => {

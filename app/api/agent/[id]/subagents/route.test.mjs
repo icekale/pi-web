@@ -60,7 +60,8 @@ function makeDeps({
     },
     resolveSessionPath: async () => (noFile ? null : "/tmp/root.jsonl"),
     isChildRunning: (id) => alive && runningIds.has(id),
-    getSubagentRun: async (id) => runs.get(id) ?? null,    steerSubagent: async (id, message) => {
+    listSubagentRuns: () => [...runs.values()],
+    steerSubagent: async (id, message) => {
       calls.steer.push({ id, message });
       if (controlError) throw controlError;
     },
@@ -141,8 +142,8 @@ test("GET reuses a live root wrapper without starting a new one", async () => {
 
 test("GET reports a running child as live with the nested contract", async () => {
   const runs = new Map([
-    ["child", { profile: "worker", description: "Do the thing", createdAt: "2026-01-01T00:00:01.000Z" }],
-    ["grand", { profile: "reviewer", description: "Review it" }],
+    ["child", { sessionId: "child", status: "running", profile: "worker", description: "Do the thing", createdAt: "2026-01-01T00:00:01.000Z" }],
+    ["grand", { sessionId: "grand", status: "running", profile: "reviewer", description: "Review it" }],
   ]);
   const response = await get("root", makeDeps({ running: ["child", "grand"], runs }));
   assert.equal(response.status, 200);
@@ -192,7 +193,7 @@ test("POST rejects unsupported actions and blank messages", async () => {
   response = await post({ childSessionId: "child", action: "steer" }, deps);
   assert.equal(response.status, 400);
 
-  response = await post({ childSessionId: "child", action: "resume", message: "   " }, deps);
+  response = await post({ childSessionId: "child", action: "steer", message: "   " }, deps);
   assert.equal(response.status, 400);
 
   response = await post({ childSessionId: "child", action: "interrupt", message: "nope" }, deps);
@@ -269,11 +270,26 @@ test("POST maps runtime control failures to 409", async () => {
   }
 });
 
-test("POST resume is rejected because only the parent Agent tool can restart a child", async () => {
+test("GET reports a queued child as queued without controls", async () => {
+  const runs = new Map([
+    ["child", { sessionId: "child", status: "queued", profile: "worker", description: "Waiting for a slot", createdAt: "2026-01-01T00:00:01.000Z" }],
+  ]);
+  // No wrapper is running yet: only the controller's run record proves the child is held.
+  const response = await get("root", makeDeps({ running: [], runs }));
+  assert.equal(response.status, 200);
+  const body = await json(response);
+  const child = body.nodes.find((node) => node.sessionId === "child");
+  assert.equal(child.state, "queued");
+  assert.equal(child.task, "Waiting for a slot");
+  assert.equal(child.canSteer, false);
+  assert.equal(child.canInterrupt, false);
+});
+
+test("POST rejects an unknown control action", async () => {
   const deps = makeDeps();
   const response = await post({ childSessionId: "child", action: "resume", message: "go on" }, deps);
   assert.equal(response.status, 400);
-  assert.match((await json(response)).error, /not supported/);
+  assert.match((await json(response)).error, /Unsupported subagent control action/);
   assert.deepEqual(deps.calls.steer, []);
 });
 
@@ -324,5 +340,5 @@ test("POST never exposes spawn, stop, retry, or bulk actions", async () => {
   assert.doesNotMatch(source, /"spawn"/);
   assert.doesNotMatch(source, /"stop"/);
   assert.doesNotMatch(source, /"retry"/);
-  assert.match(source, /action !== "steer" && action !== "interrupt" && action !== "resume"/);
+  assert.match(source, /action !== "steer" && action !== "interrupt"/);
 });

@@ -31,9 +31,8 @@ function node(sessionId, state, overrides = {}) {
     agent: "worker",
     task: sessionId === null ? "ghost" : `task ${sessionId}`,
     state,
-    canSteer: state === "running" || state === "queued" || state === "needs_attention",
+    canSteer: state === "running" || state === "needs_attention",
     canInterrupt: state === "running" || state === "needs_attention",
-    canResume: state === "paused",
     children: [],
     ...overrides,
   };
@@ -234,17 +233,16 @@ test("running composer exposes steer submit and soft interrupt without a stop", 
   assert.doesNotMatch(html, /aria-label="Stop"/);
 });
 
-test("paused composer submits resume and has no interrupt button", () => {
+test("a paused child gets no composer: only the parent can restart it", () => {
   const html = render(React.createElement(SubagentComposer, {
     node: node("child", "paused"),
     rpcAvailable: true,
     onControl: async () => {},
     onInterrupt: async () => {},
   }));
-  assert.match(html, /aria-label="Resume"/);
+  assert.match(html, /Live controls are unavailable/);
+  assert.doesNotMatch(html, /<textarea/);
   assert.doesNotMatch(html, /Pause this subagent/);
-  assert.doesNotMatch(html, /Send a steering message/);
-  assert.match(html, /Continue with a message/);
 });
 
 test("terminal, inactive, placeholder, and unavailable modes are read-only", () => {
@@ -373,9 +371,9 @@ test("tree source: finished trees auto-collapse into a compact summary", () => {
 
 test("pure helpers: submit action, elapsed formatting, and visible node flattening", () => {
   assert.equal(submitActionFor(node("a", "running")), "steer");
-  assert.equal(submitActionFor(node("a", "queued")), "steer");
+  assert.equal(submitActionFor(node("a", "queued")), null);
   assert.equal(submitActionFor(node("a", "needs_attention")), "steer");
-  assert.equal(submitActionFor(node("a", "paused")), "resume");
+  assert.equal(submitActionFor(node("a", "paused")), null);
   assert.equal(submitActionFor(node("a", "complete")), null);
   assert.equal(submitActionFor(node(null, "starting")), null);
 

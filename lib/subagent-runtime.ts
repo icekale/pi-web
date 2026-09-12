@@ -64,6 +64,11 @@ export interface SubagentRuntimeDependencies {
 export interface SubagentController {
   readonly extensionRuntime: SubagentExtensionRuntime;
   get(sessionId: string): Promise<SubagentRunInfo | null>;
+  /**
+   * In-memory runs the controller still holds — exactly the queued and running
+   * children, with the authoritative queued-vs-running status.
+   */
+  listRuns(): SubagentRunInfo[];
   steer(sessionId: string, message: string): Promise<void>;
   abort(sessionId: string): Promise<void>;
 }
@@ -652,5 +657,8 @@ export function createSubagentController(
     get,
     steer,
     abort,
+    // In-memory only: exactly the children the queue or a wrapper still owns, so the
+    // tree can tell a queued run from a running one without reading a session file.
+    listRuns: (): SubagentRunInfo[] => [...getSubagentRuns().values()].map((stored) => stored.run),
   };
 }

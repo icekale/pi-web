@@ -1,5 +1,5 @@
 import type { SubagentLifecycleState, SubagentTreeNode, SubagentTreeResponse } from "./api-types";
-import type { SessionInfo } from "./types";
+import type { SessionInfo, SubagentSessionStatus } from "./types";
 import { attachSessionRelations, isReservedSubagentSessionName } from "./session-relations";
 
 // ============================================================================
@@ -57,13 +57,11 @@ const LIVE_STATES = new Set<SubagentLifecycleState>([
   "paused",
 ]);
 
-function controlsFor(state: SubagentLifecycleState): Pick<SubagentTreeNode, "canSteer" | "canInterrupt" | "canResume"> {
-  const active = state === "queued" || state === "running" || state === "needs_attention";
-  return {
-    canSteer: active,
-    canInterrupt: state === "running" || state === "needs_attention",
-    canResume: state === "paused",
-  };
+function controlsFor(state: SubagentLifecycleState): Pick<SubagentTreeNode, "canSteer" | "canInterrupt"> {
+  // Steering and interrupting both go through the child's own wrapper, which only
+  // starts on a live turn — a queued child accepts neither, so it gets no controls.
+  const active = state === "running" || state === "needs_attention";
+  return { canSteer: active, canInterrupt: active };
 }
 
 function lifecycleFromRun(entry: SubagentRunEntry): SubagentLifecycleState {
@@ -161,8 +159,12 @@ function ownedByRoot(session: SessionInfo, rootId: string, primaryIds: Set<strin
 
 export interface LiveSubagentOptions {
   isRunning: (sessionId: string) => boolean;
-  /** Built-in run metadata for a child session, when the controller still holds it. */
-  getRun?: (sessionId: string) => { profile?: string; description?: string; createdAt?: string } | null;
+  /**
+   * The controller's own run record for a child session. `status` is what tells a
+   * queued run (waiting for a free slot, wrapper idle) from a running one — the
+   * two are indistinguishable from the wrapper alone.
+   */
+  getRun?: (sessionId: string) => { profile?: string; description?: string; createdAt?: string; status?: SubagentSessionStatus } | null;
   now?: number;
 }
 
@@ -182,14 +184,17 @@ export function collectLiveSubagentRuns(
   const entries: SubagentRunEntry[] = [];
   for (const session of related) {
     if (!ownedByRoot(session, rootId, primaryIds)) continue;
-    if (!session.subagentRunId || !options.isRunning(session.id)) continue;
+    if (!session.subagentRunId) continue;
     const run = options.getRun?.(session.id) ?? null;
+    // A queued run has no wrapper activity yet, so `isRunning` misses it — only its
+    // own run record proves the controller still holds it.
+    if (run?.status !== "queued" && !options.isRunning(session.id)) continue;
     const startedAt = run?.createdAt ? Date.parse(run.createdAt) : Number.NaN;
     entries.push({
       runId: session.subagentRunId,
       ...(session.subagentIndex !== undefined ? { index: session.subagentIndex } : {}),
       agent: run?.profile ?? session.subagentAgent ?? "subagent",
-      state: "running",
+      state: run?.status === "queued" ? "queued" : "running",
       ...(run?.description ? { label: run.description } : {}),
       ...(Number.isFinite(startedAt) ? { startedAt } : {}),
       updatedAt: now,
@@ -283,7 +288,7 @@ export function buildSubagentTree(input: {
     return candidateParentId;
   };
 
-  const rootNode: SubagentTreeNode = { sessionId: rootId, parentSessionId: "", runId: "", agent: "root", task: "", state: "inactive", canSteer: false, canInterrupt: false, canResume: false, children: [] };
+  const rootNode: SubagentTreeNode = { sessionId: rootId, parentSessionId: "", runId: "", agent: "root", task: "", state: "inactive", canSteer: false, canInterrupt: false, children: [] };
 
   for (const durable of durableBySessionId.values()) {
     const node = makeDurableNode(durable);
@@ -330,7 +335,6 @@ export function buildSubagentTree(input: {
       ...(entry.startedAt !== undefined && polledAt >= entry.startedAt ? { elapsedMs: polledAt - entry.startedAt } : {}),
       canSteer: false,
       canInterrupt: false,
-      canResume: false,
       children: [],
     };
     placeholders.push(node);
