@@ -774,7 +774,6 @@ export function CodexSidebar({
               session={session}
               selected={session.id === selectedSessionId}
               running={activeRootIds.has(session.id)}
-              runningSubagentCount={(subagentsByRoot.get(session.id) ?? []).filter((child) => runningIds.has(child.id)).length}
               unread={unreadIds.has(session.id)}
               variant="recent"
               projectLabel={projectLabel}
@@ -924,7 +923,6 @@ export function CodexSidebar({
                         session={session}
                         selected={session.id === selectedSessionId}
                         running={activeRootIds.has(session.id)}
-                        runningSubagentCount={(subagentsByRoot.get(session.id) ?? []).filter((child) => runningIds.has(child.id)).length}
                         unread={unreadIds.has(session.id)}
                         onSelect={() => selectSession(session)}
                         onChanged={() => void loadData(false)}
@@ -1082,11 +1080,10 @@ export function CodexSidebar({
   );
 }
 
-function SessionRow({ session, selected, running, runningSubagentCount, unread, variant = "nested", projectLabel, relativeTime, onSelect, onChanged, onDeleted, onArchive }: {
+function SessionRow({ session, selected, running, unread, variant = "nested", projectLabel, relativeTime, onSelect, onChanged, onDeleted, onArchive }: {
   session: SessionInfo;
   selected: boolean;
   running: boolean;
-  runningSubagentCount: number;
   unread: boolean;
   variant?: "nested" | "recent";
   projectLabel?: string;
@@ -1202,12 +1199,6 @@ function SessionRow({ session, selected, running, runningSubagentCount, unread, 
           onBlur={() => void commitRename()}
           onKeyDown={(event) => { event.stopPropagation(); if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setRenaming(false); }}
         />
-        {runningSubagentCount > 0 && (
-          <span className="codex-session-subagents" title={t("sidebar.runningSubagents", { count: runningSubagentCount })}>
-            <LoaderCircle size={11} strokeWidth={1.8} style={{ animation: "spin 0.8s linear infinite" }} aria-hidden="true" />
-            <span>{runningSubagentCount}</span>
-          </span>
-        )}
       </div>
       ) : (
       <button type="button" className="codex-session-main" onClick={onSelect} title={rowTitle}>
@@ -1223,13 +1214,7 @@ function SessionRow({ session, selected, running, runningSubagentCount, unread, 
         ) : (
           <span className="codex-session-state" data-unread={unread} />
         )}
-        <span className={`codex-session-title${isRecent ? " codex-recent-session-title" : ""}`}>{title}</span>
-        {runningSubagentCount > 0 && (
-          <span className="codex-session-subagents" title={t("sidebar.runningSubagents", { count: runningSubagentCount })}>
-            <LoaderCircle size={11} strokeWidth={1.8} style={{ animation: "spin 0.8s linear infinite" }} aria-hidden="true" />
-            <span>{runningSubagentCount}</span>
-          </span>
-        )}
+            <span className={`codex-session-title${isRecent ? " codex-recent-session-title" : ""}`}>{title}</span>
       </button>
       )}
       {isRecent && relativeTime ? <span className="codex-recent-session-time">{relativeTime}</span> : null}

@@ -51,7 +51,11 @@ export function activeSessionRoots(
       unresolved = true;
       continue;
     }
-    roots.add(session.sessionRole === "subagent" && session.rootSessionId ? session.rootSessionId : id);
+    // A subagent run is the child's state, not the parent's. Surfacing it here lit the
+    // parent's row green ("running"), marked it unread, and rang the completion tone
+    // every time a child woke or ended. Subagent status belongs to the info card only.
+    if (session.sessionRole === "subagent") continue;
+    roots.add(id);
   }
   if (unresolved) for (const id of unresolvedFallback) roots.add(id);
 

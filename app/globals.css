@@ -1366,15 +1366,6 @@ html.dark .codex-project-menu button.danger { color: var(--error); }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.codex-session-subagents {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  flex-shrink: 0;
-  color: var(--text-muted);
-  font-size: var(--text-meta);
-}
-.codex-session-subagents > svg { animation: spin .8s linear infinite; }
 .codex-session-running {
   flex-shrink: 0;
   color: var(--accent);
@@ -1533,7 +1524,6 @@ html.dark .codex-changes-row[data-status="conflict"] { color: var(--error); }
 @media (prefers-reduced-motion: reduce) {
   .codex-sidebar-chevron { transition: none; }
   .codex-project-running > svg,
-  .codex-session-subagents > svg,
   .codex-session-running { animation: spin 2.4s linear infinite !important; }
 }
 
