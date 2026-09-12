@@ -22,6 +22,7 @@ import { Route as ApiProjectsRouteImport } from './routes/api/projects'
 import { Route as ApiRemoteAccessRouteImport } from './routes/api/remote-access'
 import { Route as ApiSessionsRouteImport } from './routes/api/sessions'
 import { Route as ApiSkillsRouteImport } from './routes/api/skills'
+import { Route as ApiSubagentsRouteImport } from './routes/api/subagents'
 import { Route as ApiUiLocaleRouteImport } from './routes/api/ui-locale'
 import { Route as ApiWorktreesRouteImport } from './routes/api/worktrees'
 import { Route as ApiAgentIdRouteImport } from './routes/api/agent/$id'
@@ -49,6 +50,7 @@ import { Route as ApiAgentRunningEventsRouteImport } from './routes/api/agent/ru
 import { Route as ApiAuthApiKeyProviderRouteImport } from './routes/api/auth/api-key/$provider'
 import { Route as ApiAuthLoginProviderRouteImport } from './routes/api/auth/login/$provider'
 import { Route as ApiAuthLogoutProviderRouteImport } from './routes/api/auth/logout/$provider'
+import { Route as ApiProvidersProviderUsageRouteImport } from './routes/api/providers/$provider/usage'
 import { Route as ApiSessionsIdAutoNameRouteImport } from './routes/api/sessions/$id/auto-name'
 import { Route as ApiSessionsIdContextRouteImport } from './routes/api/sessions/$id/context'
 import { Route as ApiSessionsIdExportRouteImport } from './routes/api/sessions/$id/export'
@@ -119,6 +121,11 @@ const ApiSessionsRoute = ApiSessionsRouteImport.update({
 const ApiSkillsRoute = ApiSkillsRouteImport.update({
   id: '/api/skills',
   path: '/api/skills',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSubagentsRoute = ApiSubagentsRouteImport.update({
+  id: '/api/subagents',
+  path: '/api/subagents',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiUiLocaleRoute = ApiUiLocaleRouteImport.update({
@@ -256,6 +263,12 @@ const ApiAuthLogoutProviderRoute = ApiAuthLogoutProviderRouteImport.update({
   path: '/api/auth/logout/$provider',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiProvidersProviderUsageRoute =
+  ApiProvidersProviderUsageRouteImport.update({
+    id: '/api/providers/$provider/usage',
+    path: '/api/providers/$provider/usage',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiSessionsIdAutoNameRoute = ApiSessionsIdAutoNameRouteImport.update({
   id: '/auto-name',
   path: '/auto-name',
@@ -303,6 +316,7 @@ export interface FileRoutesByFullPath {
   '/api/remote-access': typeof ApiRemoteAccessRoute
   '/api/sessions': typeof ApiSessionsRouteWithChildren
   '/api/skills': typeof ApiSkillsRouteWithChildren
+  '/api/subagents': typeof ApiSubagentsRoute
   '/api/ui-locale': typeof ApiUiLocaleRoute
   '/api/worktrees': typeof ApiWorktreesRoute
   '/api/agent/$id': typeof ApiAgentIdRouteWithChildren
@@ -330,6 +344,7 @@ export interface FileRoutesByFullPath {
   '/api/auth/api-key/$provider': typeof ApiAuthApiKeyProviderRoute
   '/api/auth/login/$provider': typeof ApiAuthLoginProviderRoute
   '/api/auth/logout/$provider': typeof ApiAuthLogoutProviderRoute
+  '/api/providers/$provider/usage': typeof ApiProvidersProviderUsageRoute
   '/api/sessions/$id/auto-name': typeof ApiSessionsIdAutoNameRoute
   '/api/sessions/$id/context': typeof ApiSessionsIdContextRoute
   '/api/sessions/$id/export': typeof ApiSessionsIdExportRoute
@@ -351,6 +366,7 @@ export interface FileRoutesByTo {
   '/api/remote-access': typeof ApiRemoteAccessRoute
   '/api/sessions': typeof ApiSessionsRouteWithChildren
   '/api/skills': typeof ApiSkillsRouteWithChildren
+  '/api/subagents': typeof ApiSubagentsRoute
   '/api/ui-locale': typeof ApiUiLocaleRoute
   '/api/worktrees': typeof ApiWorktreesRoute
   '/api/agent/$id': typeof ApiAgentIdRouteWithChildren
@@ -378,6 +394,7 @@ export interface FileRoutesByTo {
   '/api/auth/api-key/$provider': typeof ApiAuthApiKeyProviderRoute
   '/api/auth/login/$provider': typeof ApiAuthLoginProviderRoute
   '/api/auth/logout/$provider': typeof ApiAuthLogoutProviderRoute
+  '/api/providers/$provider/usage': typeof ApiProvidersProviderUsageRoute
   '/api/sessions/$id/auto-name': typeof ApiSessionsIdAutoNameRoute
   '/api/sessions/$id/context': typeof ApiSessionsIdContextRoute
   '/api/sessions/$id/export': typeof ApiSessionsIdExportRoute
@@ -400,6 +417,7 @@ export interface FileRoutesById {
   '/api/remote-access': typeof ApiRemoteAccessRoute
   '/api/sessions': typeof ApiSessionsRouteWithChildren
   '/api/skills': typeof ApiSkillsRouteWithChildren
+  '/api/subagents': typeof ApiSubagentsRoute
   '/api/ui-locale': typeof ApiUiLocaleRoute
   '/api/worktrees': typeof ApiWorktreesRoute
   '/api/agent/$id': typeof ApiAgentIdRouteWithChildren
@@ -427,6 +445,7 @@ export interface FileRoutesById {
   '/api/auth/api-key/$provider': typeof ApiAuthApiKeyProviderRoute
   '/api/auth/login/$provider': typeof ApiAuthLoginProviderRoute
   '/api/auth/logout/$provider': typeof ApiAuthLogoutProviderRoute
+  '/api/providers/$provider/usage': typeof ApiProvidersProviderUsageRoute
   '/api/sessions/$id/auto-name': typeof ApiSessionsIdAutoNameRoute
   '/api/sessions/$id/context': typeof ApiSessionsIdContextRoute
   '/api/sessions/$id/export': typeof ApiSessionsIdExportRoute
@@ -450,6 +469,7 @@ export interface FileRouteTypes {
     | '/api/remote-access'
     | '/api/sessions'
     | '/api/skills'
+    | '/api/subagents'
     | '/api/ui-locale'
     | '/api/worktrees'
     | '/api/agent/$id'
@@ -477,6 +497,7 @@ export interface FileRouteTypes {
     | '/api/auth/api-key/$provider'
     | '/api/auth/login/$provider'
     | '/api/auth/logout/$provider'
+    | '/api/providers/$provider/usage'
     | '/api/sessions/$id/auto-name'
     | '/api/sessions/$id/context'
     | '/api/sessions/$id/export'
@@ -498,6 +519,7 @@ export interface FileRouteTypes {
     | '/api/remote-access'
     | '/api/sessions'
     | '/api/skills'
+    | '/api/subagents'
     | '/api/ui-locale'
     | '/api/worktrees'
     | '/api/agent/$id'
@@ -525,6 +547,7 @@ export interface FileRouteTypes {
     | '/api/auth/api-key/$provider'
     | '/api/auth/login/$provider'
     | '/api/auth/logout/$provider'
+    | '/api/providers/$provider/usage'
     | '/api/sessions/$id/auto-name'
     | '/api/sessions/$id/context'
     | '/api/sessions/$id/export'
@@ -546,6 +569,7 @@ export interface FileRouteTypes {
     | '/api/remote-access'
     | '/api/sessions'
     | '/api/skills'
+    | '/api/subagents'
     | '/api/ui-locale'
     | '/api/worktrees'
     | '/api/agent/$id'
@@ -573,6 +597,7 @@ export interface FileRouteTypes {
     | '/api/auth/api-key/$provider'
     | '/api/auth/login/$provider'
     | '/api/auth/logout/$provider'
+    | '/api/providers/$provider/usage'
     | '/api/sessions/$id/auto-name'
     | '/api/sessions/$id/context'
     | '/api/sessions/$id/export'
@@ -595,6 +620,7 @@ export interface RootRouteChildren {
   ApiRemoteAccessRoute: typeof ApiRemoteAccessRoute
   ApiSessionsRoute: typeof ApiSessionsRouteWithChildren
   ApiSkillsRoute: typeof ApiSkillsRouteWithChildren
+  ApiSubagentsRoute: typeof ApiSubagentsRoute
   ApiUiLocaleRoute: typeof ApiUiLocaleRoute
   ApiWorktreesRoute: typeof ApiWorktreesRoute
   ApiAgentIdRoute: typeof ApiAgentIdRouteWithChildren
@@ -610,6 +636,7 @@ export interface RootRouteChildren {
   ApiAuthApiKeyProviderRoute: typeof ApiAuthApiKeyProviderRoute
   ApiAuthLoginProviderRoute: typeof ApiAuthLoginProviderRoute
   ApiAuthLogoutProviderRoute: typeof ApiAuthLogoutProviderRoute
+  ApiProvidersProviderUsageRoute: typeof ApiProvidersProviderUsageRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -703,6 +730,13 @@ declare module '@tanstack/react-router' {
       path: '/api/skills'
       fullPath: '/api/skills'
       preLoaderRoute: typeof ApiSkillsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/subagents': {
+      id: '/api/subagents'
+      path: '/api/subagents'
+      fullPath: '/api/subagents'
+      preLoaderRoute: typeof ApiSubagentsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/ui-locale': {
@@ -894,6 +928,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthLogoutProviderRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/providers/$provider/usage': {
+      id: '/api/providers/$provider/usage'
+      path: '/api/providers/$provider/usage'
+      fullPath: '/api/providers/$provider/usage'
+      preLoaderRoute: typeof ApiProvidersProviderUsageRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/sessions/$id/auto-name': {
       id: '/api/sessions/$id/auto-name'
       path: '/auto-name'
@@ -1051,6 +1092,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiRemoteAccessRoute: ApiRemoteAccessRoute,
   ApiSessionsRoute: ApiSessionsRouteWithChildren,
   ApiSkillsRoute: ApiSkillsRouteWithChildren,
+  ApiSubagentsRoute: ApiSubagentsRoute,
   ApiUiLocaleRoute: ApiUiLocaleRoute,
   ApiWorktreesRoute: ApiWorktreesRoute,
   ApiAgentIdRoute: ApiAgentIdRouteWithChildren,
@@ -1066,6 +1108,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAuthApiKeyProviderRoute: ApiAuthApiKeyProviderRoute,
   ApiAuthLoginProviderRoute: ApiAuthLoginProviderRoute,
   ApiAuthLogoutProviderRoute: ApiAuthLogoutProviderRoute,
+  ApiProvidersProviderUsageRoute: ApiProvidersProviderUsageRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
