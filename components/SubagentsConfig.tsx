@@ -47,6 +47,9 @@ export function SubagentsConfig({ cwd, sessionId, onReloaded }: Props) {
       const response = await fetch(`/api/subagents?cwd=${encodeURIComponent(cwd)}`, { cache: "no-store" });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json() as SubagentsPayload;
+      if (!data?.settings || !Array.isArray(data.profiles)) {
+        throw new Error("Unexpected settings response");
+      }
       setSettings(data.settings);
       setProfiles(data.profiles);
     } catch (cause) {
@@ -73,8 +76,11 @@ export function SubagentsConfig({ cwd, sessionId, onReloaded }: Props) {
       if (!response.ok || !data.settings) throw new Error(data.error ?? `HTTP ${response.status}`);
       setSettings(data.settings);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      const message = cause instanceof Error ? cause.message : String(cause);
+      // load() clears the error when it starts, so re-sync the server value first and
+      // surface the failure after — otherwise a rejected save reverts with no message.
       await load();
+      setError(message);
     } finally {
       setSaving(false);
     }

@@ -23,20 +23,14 @@ function readMaxConcurrent(value: unknown): number {
     : DEFAULT_SUBAGENT_MAX_CONCURRENT;
 }
 
-function settingsValue(builtInEnabled: boolean, maxConcurrent: number): SubagentSettings {
-  return Object.defineProperty({ builtInEnabled }, "maxConcurrent", {
-    value: maxConcurrent,
-    enumerable: false,
-    configurable: true,
-  }) as SubagentSettings;
-}
-
 export function getSubagentSettingsPath(agentDir = getAgentDir()): string {
   return join(agentDir, "agents", "settings.json");
 }
 
 function readStoredSettings(settingsPath: string): StoredSubagentSettings {
   if (!existsSync(settingsPath)) return {};
+  // Throwing is deliberate: a damaged file must fail closed rather than be
+  // overwritten. Callers either catch (isBuiltInSubagentsEnabled) or 500.
   const parsed: unknown = JSON.parse(readFileSync(settingsPath, "utf8"));
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error("Invalid subagent settings: expected an object");
@@ -48,7 +42,12 @@ export function readSubagentSettings(
   settingsPath = getSubagentSettingsPath(),
 ): SubagentSettings {
   const stored = readStoredSettings(settingsPath);
-  return settingsValue(stored.builtInEnabled === true, readMaxConcurrent(stored.maxConcurrent));
+  // A plain object: hiding maxConcurrent behind a non-enumerable property made any
+  // future spread or JSON.stringify of the settings drop the field silently.
+  return {
+    builtInEnabled: stored.builtInEnabled === true,
+    maxConcurrent: readMaxConcurrent(stored.maxConcurrent),
+  };
 }
 
 export function isBuiltInSubagentsEnabled(

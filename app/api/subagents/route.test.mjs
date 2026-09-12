@@ -127,3 +127,40 @@ test("PUT requires a JSON content type", async () => {
   }));
   assert.equal(response.status, 415);
 });
+
+test("PUT validates the whole body before writing anything", async () => {
+  const { PUT } = await jiti.import("./route.ts");
+  const seed = await PUT(request("PUT", { body: { builtInEnabled: false, maxConcurrent: 4 } }));
+  assert.equal(seed.status, 200);
+  const before = readFileSync(settingsPath, "utf8");
+
+  for (const body of [
+    { builtInEnabled: true, maxConcurrent: 0 },
+    { builtInEnabled: true, maxConcurrent: 33 },
+    { builtInEnabled: true, maxConcurrent: "7" },
+    { maxConcurrent: true },
+  ]) {
+    const response = await PUT(request("PUT", { body }));
+    assert.equal(response.status, 400, JSON.stringify(body));
+    assert.equal(readFileSync(settingsPath, "utf8"), before, `${JSON.stringify(body)} must not write`);
+  }
+});
+
+test("PUT rejects bodies that are not JSON objects", async () => {
+  const { PUT } = await jiti.import("./route.ts");
+  const raw = (text) => PUT(new Request("http://127.0.0.1:30141/api/subagents", {
+    method: "PUT",
+    headers: {
+      host: "127.0.0.1:30141",
+      origin: "http://127.0.0.1:30141",
+      "sec-fetch-site": "same-origin",
+      "content-type": "application/json",
+    },
+    body: text,
+  }));
+
+  for (const text of ["null", "5", '"yes"', "[]", "{"]) {
+    const response = await raw(text);
+    assert.equal(response.status, 400, text);
+  }
+});

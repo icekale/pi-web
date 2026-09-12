@@ -133,6 +133,9 @@ test("subagent settings read and write the runtime switches", () => {
   assert.match(subagents, /role="switch"[\s\S]*?aria-checked=\{settings\?\.builtInEnabled \?\? false\}/);
   assert.match(subagents, /id="settings-subagents-max-concurrent"/);
   assert.match(subagents, /save\(\{ maxConcurrent: Number\(event\.target\.value\) \}\)/);
+  // A rejected save must still show its message: load() clears the error, so the
+  // catch has to re-sync first and set the message afterwards.
+  assert.match(subagents, /catch \(cause\) \{[\s\S]*?await load\(\);[\s\S]{0,40}setError\(message\);/);
   // The list is a summary: system prompts must stay on the server.
   assert.doesNotMatch(subagents, /systemPrompt/);
 });
