@@ -39,6 +39,7 @@ export const API_ROUTE_METHODS: Record<string, readonly string[]> = {
   "/api/plugins": ["GET", "POST"],
   "/api/project-trust": ["GET", "POST"],
   "/api/projects": ["GET", "PATCH", "PUT"],
+  "/api/providers/$provider/usage": ["GET"],
   "/api/remote-access": ["GET", "PUT"],
   "/api/sessions/$id/auto-name": ["POST"],
   "/api/sessions/$id/context": ["GET"],
@@ -53,6 +54,7 @@ export const API_ROUTE_METHODS: Record<string, readonly string[]> = {
   "/api/skills": ["GET", "PATCH"],
   "/api/skills/search": ["POST"],
   "/api/skills/update": ["POST"],
+  "/api/subagents": ["GET", "PUT"],
   "/api/ui-locale": ["GET", "PUT"],
   "/api/worktrees": ["DELETE", "GET", "POST"],
 };

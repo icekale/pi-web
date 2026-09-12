@@ -6,6 +6,7 @@ import {
   Archive,
   ArchiveRestore,
   Bell,
+  Bot,
   Brain,
   Cpu,
   Gauge,
@@ -34,6 +35,7 @@ import type { ModelsDraftController } from "./models-config/models-config-types"
 import type { SettingsSectionController } from "./resource-settings/resource-settings-types";
 import { PluginsConfig } from "./PluginsConfig";
 import { SkillsConfig } from "./SkillsConfig";
+import { SubagentsConfig } from "./SubagentsConfig";
 import { RemoteAccessConfig, type RemoteDraftController } from "./RemoteAccessConfig";
 import { DialogShell } from "./DialogShell";
 import {
@@ -41,7 +43,7 @@ import {
   setThinkingExpandedByDefault,
 } from "@/lib/thinking-expansion-preference";
 
-type SettingsSection = "general" | "remote" | "archived" | "models" | "skills" | "plugins";
+type SettingsSection = "general" | "remote" | "archived" | "models" | "skills" | "plugins" | "subagents";
 
 interface Props {
   cwd: string | null;
@@ -72,6 +74,7 @@ function SectionIcon({ section }: { section: SettingsSection }) {
     models: Cpu,
     skills: Layers3,
     plugins: Plug,
+    subagents: Bot,
   };
   const Icon = icons[section];
   return <Icon size={16} strokeWidth={1.8} aria-hidden="true" />;
@@ -253,6 +256,7 @@ export function SettingsPage({
     { id: "models", label: t("common.models"), disabled: false },
     { id: "skills", label: t("common.skills"), disabled: !cwd },
     { id: "plugins", label: t("common.plugins"), disabled: !cwd },
+    { id: "subagents", label: t("common.subagents"), disabled: !cwd },
     { id: "remote", label: t("remote.nav"), disabled: false },
   ];
 
@@ -376,6 +380,8 @@ export function SettingsPage({
     );
   } else if (section === "skills") {
     content = <SkillsConfig cwd={cwd} onControllerChange={setSkillsController} />;
+  } else if (section === "subagents") {
+    content = <SubagentsConfig cwd={cwd} sessionId={sessionId} onReloaded={onSessionReloaded} />;
   } else {
     content = (
       <PluginsConfig

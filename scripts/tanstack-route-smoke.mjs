@@ -206,6 +206,7 @@ export async function smokeAllRoutes({ origin, authHeaders = {} }) {
       headers: { "content-type": "application/json" },
       body: "{}",
     });
+    await probe("GET", "/api/providers/not-a-provider/usage", [404]);
     await probe("GET", "/api/remote-access", [200]);
     envSkip("PUT /api/remote-access", "write operation; covered by unit tests only");
     await probe("GET", `/api/skills?cwd=${encodeURIComponent(fixtureDir)}`, [200, 400]);
@@ -226,6 +227,11 @@ export async function smokeAllRoutes({ origin, authHeaders = {} }) {
       body: "{}",
     });
     await probe("POST", "/api/skills/update", [400], {
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    await probe("GET", `/api/subagents?cwd=${encodeURIComponent(fixtureDir)}`, [200, 400]);
+    await probe("PUT", "/api/subagents", [400], {
       headers: { "content-type": "application/json" },
       body: "{}",
     });
