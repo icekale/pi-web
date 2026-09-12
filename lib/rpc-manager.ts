@@ -12,7 +12,7 @@ import {
   createProjectCommandBashOperations,
   preferUserBashExtension,
 } from "./project-command-env";
-import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
+import { cacheSessionPath, invalidateSessionListCache, resolveSessionPath } from "./session-reader";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import { persistExplicitStartupPreferences } from "./startup-preferences";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
@@ -22,12 +22,20 @@ import type {
   ExtensionUiRequest,
   ExtensionUiResponse,
   ExtensionWidgetItem,
+  SessionEntry,
   SessionInfo,
   SessionMessageEntry,
 } from "./types";
 import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS, type HeadlessCustomUiTui } from "./custom-ui-terminal";
 import { createEmbeddedHostCompatExtension, installEmbeddedHostCompat } from "./embedded-host-compat";
-import { createSubagentRpcCapture, SubagentRpcClient, type SubagentRpcCapture } from "./subagent-rpc";
+import { createSubagentExtension, preferPiWebSubagentExtension } from "./subagent-extension";
+import {
+  listSubagentProfiles,
+  readSubagentSessionResources,
+  SUBAGENT_CONTROL_TOOL_NAMES,
+} from "./subagents";
+import { createSubagentController } from "./subagent-runtime";
+import { isBuiltInSubagentsEnabled } from "./subagent-settings";
 import { createReasoningRouterExtension } from "./reasoning-router";
 import { isSessionLeaseActive, leaseExpiresAt } from "./session-liveness";
 
@@ -200,6 +208,7 @@ export class AgentSessionWrapper {
   private extensionBindingPromise: Promise<void> | null = null;
   private extensionBindingError: unknown = null;
   private forceEmptySystemPrompt = false;
+  private exactSystemPrompt: string | null = null;
   private unsubscribe: (() => void) | null = null;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private onDestroyCallback: (() => void) | null = null;
@@ -208,16 +217,10 @@ export class AgentSessionWrapper {
   private forceShutdownOnIdle = false;
   private sessionLeaseExpiresAt = 0;
   private _alive = true;
-  private readonly subagentRpcClient: SubagentRpcClient;
   private liveSubagentSessionIds: string[] = [];
   private uiPromptDepth = 0;
 
-  constructor(
-    public readonly inner: AgentSessionLike,
-    subagentRpcCapture?: SubagentRpcCapture,
-  ) {
-    this.subagentRpcClient = new SubagentRpcClient(subagentRpcCapture ?? { events: null });
-  }
+  constructor(public readonly inner: AgentSessionLike) {}
 
   getLiveSubagentSessionIds(): string[] {
     return this.liveSubagentSessionIds;
@@ -229,11 +232,6 @@ export class AgentSessionWrapper {
     if (previous.length === next.length && previous.every((id, index) => id === next[index])) return false;
     this.liveSubagentSessionIds = next;
     return true;
-  }
-
-  async getSubagentRpcClient(): Promise<SubagentRpcClient> {
-    await this.waitUntilReady();
-    return this.subagentRpcClient;
   }
 
   get sessionId(): string {
@@ -280,6 +278,11 @@ export class AgentSessionWrapper {
 
   setForceEmptySystemPrompt(force: boolean): void {
     this.forceEmptySystemPrompt = force;
+    this.applyForcedEmptySystemPrompt();
+  }
+
+  setExactSystemPrompt(prompt: string): void {
+    this.exactSystemPrompt = prompt;
     this.applyForcedEmptySystemPrompt();
   }
 
@@ -489,7 +492,13 @@ export class AgentSessionWrapper {
 
 
   private applyForcedEmptySystemPrompt(): void {
-    if (this.forceEmptySystemPrompt && this.inner.agent.state) {
+    if (!this.inner.agent.state) return;
+    // An exact prompt (a subagent profile's snapshot) outranks the empty-prompt rule.
+    if (this.exactSystemPrompt !== null) {
+      this.inner.agent.state.systemPrompt = this.exactSystemPrompt;
+      return;
+    }
+    if (this.forceEmptySystemPrompt) {
       this.inner.agent.state.systemPrompt = "";
     }
   }
@@ -825,7 +834,9 @@ export class AgentSessionWrapper {
 
       case "set_thinking_level": {
         const level = command.level as string;
-        this.inner._refreshCurrentModelFromRegistry?.();
+        // The pi runtime keeps this private; rpc-manager re-reads the registry so a
+        // just-changed model's thinking support is visible before setThinkingLevel clamps.
+        (this.inner as { _refreshCurrentModelFromRegistry?: () => void })._refreshCurrentModelFromRegistry?.();
         this.inner.setThinkingLevel(level);
         // setThinkingLevel clamps xhigh→high for models where supportsXhigh()===false.
         // If the model has DeepSeek thinking compat (reasoningEffortMap maps xhigh→max),
@@ -967,7 +978,6 @@ export class AgentSessionWrapper {
 
       case "reload": {
         await this.waitForExtensionsBound();
-        this.subagentRpcClient.resetForReload();
         this.extensionStatuses.clear();
         this.resetExtensionWidgetsForReload();
         this.syncProjectTrust();
@@ -1040,7 +1050,6 @@ export class AgentSessionWrapper {
   destroy(): void {
     if (!this._alive) return;
     this._alive = false;
-    this.subagentRpcClient.dispose();
     if (this.idleTimer) clearTimeout(this.idleTimer);
     if (this.inner.isBashRunning) this.inner.abortBash();
     this.unsubscribe?.();
@@ -1746,6 +1755,44 @@ function getRegistry(): Map<string, AgentSessionWrapper> {
   return globalThis.__piSessions;
 }
 
+// Built-in subagent runtime (ported from upstream v0.9.1). Children are created
+// in-process through this server's own pi runtime, so a child gets the same
+// tools and PATH as its parent instead of spawning a separate `pi` CLI.
+const SUBAGENT_CONTROLLER = createSubagentController({
+  getSession: (sessionId) => getRpcSession(sessionId),
+  registerSession: (inner, options) => {
+    const wrapper = new AgentSessionWrapper(inner);
+    if (options?.exactSystemPrompt !== undefined) {
+      wrapper.setExactSystemPrompt(options.exactSystemPrompt);
+    }
+    if (options?.chatOnly) wrapper.setForceEmptySystemPrompt(true);
+    const childId = inner.sessionId as string;
+    const childFile = inner.sessionFile as string | undefined;
+    if (childFile) cacheSessionPath(childId, childFile);
+    wrapper.onDestroy(() => getRegistry().delete(childId));
+    getRegistry().set(childId, wrapper);
+    wrapper.start();
+    wrapper.beginExtensionBinding({ forceEmptySystemPrompt: options?.chatOnly === true });
+  },
+  reopenSession: async (sessionId, sessionFile) =>
+    (await startRpcSession(sessionId, sessionFile, undefined)).session,
+  resolveSessionPath,
+  invalidateSessionList: invalidateSessionListCache,
+  isBuiltInSubagentsEnabled,
+});
+
+export function getSubagentRun(sessionId: string) {
+  return SUBAGENT_CONTROLLER.get(sessionId);
+}
+
+export function steerSubagent(sessionId: string, message: string) {
+  return SUBAGENT_CONTROLLER.steer(sessionId, message);
+}
+
+export function abortSubagent(sessionId: string) {
+  return SUBAGENT_CONTROLLER.abort(sessionId);
+}
+
 function getLocks(): Map<string, Promise<{ session: AgentSessionWrapper; realSessionId: string }>> {
   if (!globalThis.__piStartLocks) globalThis.__piStartLocks = new Map();
   return globalThis.__piStartLocks;
@@ -1964,16 +2011,28 @@ export async function startRpcSession(
     sessionManager = SessionManager.create(cwd, undefined);
   }
   const sessionCwd = sessionManager.getCwd();
+  // A reopened child session carries its profile's resource snapshot, so it runs
+  // with the profile's tools instead of the Pi Web defaults.
+  const subagentResources = sessionFile
+    ? readSubagentSessionResources(sessionManager.getEntries() as unknown as SessionEntry[])
+    : null;
+  const subagentLoadsResources = Boolean(
+    subagentResources?.loadExtensions || subagentResources?.loadSkills,
+  );
+  // Pure chat child: a profile with no tools and no extension/skill resources.
+  const chatOnly = Boolean(
+    subagentResources && subagentResources.tools?.length === 0 && !subagentLoadsResources,
+  );
   const finishStartingSession = trackStartingSession(sessionCwd);
   const starting = (async () => {
     // Some extensions access the SDK's global theme even outside the terminal UI.
-    initTheme();
+    if (!chatOnly) initTheme();
     const agentDir = getAgentDir();
 
     // Determine which tools to pass based on requested toolNames.
     // Since v0.68.0, session creation expects string[] tool names instead of Tool[] instances.
-    let toolsOption: string[] | undefined;
-    if (toolNames !== undefined) {
+    let toolsOption: string[] | undefined = subagentResources?.tools;
+    if (!subagentResources && toolNames !== undefined) {
       // toolNames === [] -> "all off" (an empty allow-list disables every tool).
       // Otherwise DO NOT pass a builtin-only allow-list: passing CODING_TOOL_NAMES
       // set allowedToolNames to coding builtins only, which filtered every
@@ -1988,9 +2047,12 @@ export async function startRpcSession(
     // before the SDK restores the saved model from the session file.
     // Gate untrusted project extensions so opening a repository does not run
     // its .pi/extensions code automatically (see lib/project-trust.ts, #236).
-    const trustReloadOptions = projectTrustReloadOptions(sessionCwd, agentDir);
+    const trustReloadOptions = subagentResources
+      ? subagentLoadsResources
+        ? projectTrustReloadOptions(sessionCwd, agentDir)
+        : undefined
+      : projectTrustReloadOptions(sessionCwd, agentDir);
     installEmbeddedHostCompat();
-    const subagentRpc = createSubagentRpcCapture();
     const reasoningRouter = createReasoningRouterExtension();
     const embeddedHost = createEmbeddedHostCompatExtension({ cwd: sessionCwd });
     const settingsManager = SettingsManager.create(sessionCwd, agentDir);
@@ -1998,18 +2060,37 @@ export async function startRpcSession(
       cwd: sessionCwd,
       agentDir,
       settingsManager,
-      resourceLoaderOptions: {
-        extensionFactories: [
-          createProjectCommandBashExtension({
-            cwd: sessionCwd,
-            settings: settingsManager,
-          }),
-          embeddedHost,
-          subagentRpc.extension,
-          reasoningRouter,
-        ],
-        extensionsOverride: preferUserBashExtension,
-      },
+      resourceLoaderOptions: subagentResources
+        ? {
+            noExtensions: !subagentResources.loadExtensions,
+            noSkills: !subagentResources.loadSkills,
+            noPromptTemplates: true,
+            noThemes: true,
+            noContextFiles: true,
+            ...(chatOnly
+              ? {
+                  systemPrompt: " ",
+                  systemPromptOverride: () => undefined,
+                }
+              : {}),
+            appendSystemPrompt: subagentResources.appendSystemPrompt,
+          }
+        : {
+            extensionFactories: [
+              createProjectCommandBashExtension({
+                cwd: sessionCwd,
+                settings: settingsManager,
+              }),
+              embeddedHost,
+              reasoningRouter,
+              createSubagentExtension(
+                SUBAGENT_CONTROLLER.extensionRuntime,
+                () => listSubagentProfiles(sessionCwd),
+                isBuiltInSubagentsEnabled,
+              ),
+            ],
+            extensionsOverride: (base) => preferUserBashExtension(preferPiWebSubagentExtension(base)),
+          },
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
     });
     const scope = await resolveVisibleModels(
@@ -2035,6 +2116,7 @@ export async function startRpcSession(
       ...(initial.thinkingLevel ? { thinkingLevel: initial.thinkingLevel } : {}),
       ...(initial.scopedModels.length > 0 ? { scopedModels: initial.scopedModels } : {}),
       ...(toolsOption !== undefined ? { tools: toolsOption } : {}),
+      ...(subagentResources ? { excludeTools: [...SUBAGENT_CONTROL_TOOL_NAMES] } : {}),
     });
 
     // Startup after creation can still fail (preferences persist, tool
@@ -2070,12 +2152,16 @@ export async function startRpcSession(
       throw error;
     }
 
-    const wrapper = new AgentSessionWrapper(inner, subagentRpc.capture);
+    const wrapper = new AgentSessionWrapper(inner);
     // When all tools are disabled, clear the system prompt entirely.
     // pi's buildSystemPrompt always produces a non-empty prompt even with no tools;
     // keep this forced after extension resource discovery and reloads as well.
-    if (toolNames?.length === 0) {
+    if (toolNames?.length === 0 || chatOnly) {
       wrapper.setForceEmptySystemPrompt(true);
+    }
+    // The profile's prompt snapshot replaces whatever the resource loader built.
+    if (subagentResources?.exactSystemPrompt !== undefined) {
+      wrapper.setExactSystemPrompt(subagentResources.exactSystemPrompt);
     }
     wrapper.start();
 
@@ -2085,7 +2171,7 @@ export async function startRpcSession(
 
     wrapper.onDestroy(() => registry.delete(realSessionId));
     registry.set(realSessionId, wrapper);
-    wrapper.beginExtensionBinding({ forceEmptySystemPrompt: toolNames?.length === 0 });
+    wrapper.beginExtensionBinding({ forceEmptySystemPrompt: toolNames?.length === 0 || chatOnly });
 
     return { session: wrapper, realSessionId };
   })().finally(() => {

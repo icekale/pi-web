@@ -1,27 +1,30 @@
 import { attachSessionRelations } from "@/lib/session-relations";
-import { buildSubagentTree, collectLiveSubagentSessionIds, findOwnedSubagent } from "@/lib/subagent-tree";
-import { getRpcSession, notifyRunningChange, startRpcSession, type AgentSessionWrapper } from "@/lib/rpc-manager";
+import {
+  buildSubagentTree,
+  collectLiveSubagentRuns,
+  collectLiveSubagentSessionIds,
+  findOwnedSubagent,
+} from "@/lib/subagent-tree";
+import {
+  abortSubagent,
+  getRpcSession,
+  getSubagentRun,
+  notifyRunningChange,
+  startRpcSession,
+  steerSubagent,
+  type AgentSessionWrapper,
+} from "@/lib/rpc-manager";
 import { listAllSessions, resolveSessionPath } from "@/lib/session-reader";
 import type { SubagentTreeResponse, SubagentControlResponse } from "@/lib/api-types";
 import type { SessionInfo } from "@/lib/types";
-
-type SubagentTreeReason = NonNullable<SubagentTreeResponse["unavailableReason"]>;
-
-function rpcErrorOf(error: unknown): { code: string; stage?: string; message: string } | null {
-  if (!(error instanceof Error)) return null;
-  const code = (error as { code?: unknown }).code;
-  if (typeof code !== "string" || code.length === 0) return null;
-  const stage = (error as { stage?: unknown }).stage;
-  return { code, stage: typeof stage === "string" ? stage : undefined, message: error.message };
-}
 
 // ============================================================================
 // GET  /api/agent/[rootId]/subagents
 // POST /api/agent/[rootId]/subagents
 //
-// Root-scoped subagent tree and controls. All status/control traffic executes
-// through the owning root parent session's RPC client; the browser never
-// supplies run ids, indexes, or run directories.
+// Root-scoped subagent tree and controls, served from the built-in in-process
+// subagent runtime. The browser never supplies run ids or run directories: a
+// child session id is resolved to an owned child before any control runs.
 // ============================================================================
 
 export interface SubagentRouteDeps {
@@ -29,17 +32,25 @@ export interface SubagentRouteDeps {
   getWrapper: (id: string) => AgentSessionWrapper | undefined;
   startWrapper: (id: string, filePath: string) => Promise<{ session: AgentSessionWrapper }>;
   resolveSessionPath: (id: string) => Promise<string | null>;
+  isChildRunning: (id: string) => boolean;
+  getSubagentRun: (childSessionId: string) => Promise<{ profile?: string; description?: string; createdAt?: string } | null>;
+  steerSubagent: (childSessionId: string, message: string) => Promise<void>;
+  abortSubagent: (childSessionId: string) => Promise<void>;
 }
 
 const defaultDeps: SubagentRouteDeps = {
   // The cached session list (30s TTL) is fresh enough for durable tree nodes;
   // forcing a full re-scan on every poll made 1.5s polling rebuild the whole
-  // session index (including nested discovery) per tick. Live children still
-  // appear instantly as RPC placeholders.
+  // session index (including nested discovery) per tick.
   listSessions: () => listAllSessions(),
   getWrapper: (id) => getRpcSession(id),
   startWrapper: async (id, filePath) => startRpcSession(id, filePath, undefined),
   resolveSessionPath: async (id) => resolveSessionPath(id),
+  // Built-in children run in-process, so the child's own wrapper is the truth.
+  isChildRunning: (id) => getRpcSession(id)?.isRunning() === true,
+  getSubagentRun: (childSessionId) => getSubagentRun(childSessionId),
+  steerSubagent,
+  abortSubagent,
 };
 
 async function startRootWrapper(rootId: string, deps: SubagentRouteDeps): Promise<AgentSessionWrapper | null> {
@@ -54,13 +65,39 @@ async function startRootWrapper(rootId: string, deps: SubagentRouteDeps): Promis
   }
 }
 
-function durableTree(rootId: string, sessions: SessionInfo[], reason: SubagentTreeReason): SubagentTreeResponse {
+/** Runtime metadata for children that are still live, used to label tree nodes. */
+async function liveRunMeta(
+  sessions: SessionInfo[],
+  deps: SubagentRouteDeps,
+): Promise<Map<string, { profile?: string; description?: string; createdAt?: string }>> {
+  const meta = new Map<string, { profile?: string; description?: string; createdAt?: string }>();
+  for (const session of attachSessionRelations(sessions)) {
+    if (session.sessionRole !== "subagent" || !deps.isChildRunning(session.id)) continue;
+    const run = await deps.getSubagentRun(session.id);
+    if (run) meta.set(session.id, run);
+  }
+  return meta;
+}
+
+async function liveRuns(
+  rootId: string,
+  sessions: SessionInfo[],
+  deps: SubagentRouteDeps,
+): Promise<ReturnType<typeof collectLiveSubagentRuns>> {
+  const meta = await liveRunMeta(sessions, deps);
+  return collectLiveSubagentRuns(rootId, sessions, {
+    isRunning: (sessionId) => deps.isChildRunning(sessionId),
+    getRun: (sessionId) => meta.get(sessionId) ?? null,
+  });
+}
+
+function durableTree(rootId: string, sessions: SessionInfo[]): SubagentTreeResponse {
   return buildSubagentTree({
     rootId,
     sessions,
     runs: null,
     rpcAvailable: false,
-    unavailableReason: reason,
+    unavailableReason: "offline",
     polledAt: Date.now(),
   });
 }
@@ -89,39 +126,21 @@ export function createSubagentHandlers(deps: SubagentRouteDeps = defaultDeps) {
         return Response.json({ error: "Subagent tree requires a primary root session" }, { status: 400 });
       }
 
-      const fallback = durableTree(rootId, sessions, "offline");
+      const fallback = durableTree(rootId, sessions);
       const wrapper = await startRootWrapper(rootId, deps);
       if (!wrapper) {
         return Response.json(fallback);
       }
 
-      const client = await wrapper.getSubagentRpcClient();
-      try {
-        const runs = await client.getRunStatus();
-        if (runs) {
-          rememberLiveChildren(wrapper, sessions, runs);
-          return Response.json(buildSubagentTree({
-            rootId,
-            sessions,
-            runs,
-            rpcAvailable: true,
-            polledAt: Date.now(),
-          }));
-        }
-        rememberLiveChildren(wrapper, sessions, null);
-        const reason = client.lastNegotiationReason === "incompatible" ? "incompatible" : "not-installed";
-        return Response.json(durableTree(rootId, sessions, reason));
-      } catch (error) {
-        const rpcError = rpcErrorOf(error);
-        if (rpcError?.stage === "status" && rpcError.code === "timeout") {
-          return Response.json({
-            error: "subagent status timeout",
-            fallback,
-            ...(wrapper.isRunning() ? { busy: true } : {}),
-          }, { status: 504 });
-        }
-        return Response.json(fallback);
-      }
+      const runs = await liveRuns(rootId, sessions, deps);
+      rememberLiveChildren(wrapper, sessions, runs);
+      return Response.json(buildSubagentTree({
+        rootId,
+        sessions,
+        runs,
+        rpcAvailable: true,
+        polledAt: Date.now(),
+      }));
     } catch (error) {
       return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
     }
@@ -158,55 +177,44 @@ export function createSubagentHandlers(deps: SubagentRouteDeps = defaultDeps) {
       if (!child) {
         return Response.json({ error: "Child session does not belong to this root" }, { status: 400 });
       }
-      if (!child.subagentRunId) {
-        return Response.json({ error: "Child session has no run identity" }, { status: 400 });
-      }
 
       const wrapper = await startRootWrapper(rootId, deps);
       if (!wrapper) {
         return Response.json({ error: "Root session is offline" }, { status: 409 });
       }
 
-      const client = await wrapper.getSubagentRpcClient();
-      const params = {
-        runId: child.subagentRunId,
-        ...(child.subagentIndex !== undefined ? { index: child.subagentIndex } : {}),
-        ...(action !== "interrupt" ? { message: (body.message as string).trim() } : {}),
-      };
       try {
-        const controlResult = await client.control(action, params);
-        let tree: SubagentTreeResponse | undefined;
-        try {
-          const runs = await client.getRunStatus();
-          if (runs) {
-            rememberLiveChildren(wrapper, sessions, runs);
-            tree = buildSubagentTree({ rootId, sessions, runs, rpcAvailable: true, polledAt: Date.now() });
-          }
-        } catch {
-          // The control succeeded; a failed follow-up snapshot keeps last data.
+        if (action === "interrupt") {
+          await deps.abortSubagent(body.childSessionId);
+        } else if (action === "steer") {
+          await deps.steerSubagent(body.childSessionId, (body.message as string).trim());
+        } else {
+          // Resuming a finished child restarts it under the built-in runtime,
+          // which only the parent's Agent tool can request.
+          return Response.json({ error: "Resuming a subagent is not supported here" }, { status: 400 });
         }
+
+        const runs = await liveRuns(rootId, sessions, deps);
+        rememberLiveChildren(wrapper, sessions, runs);
+        const tree = buildSubagentTree({
+          rootId,
+          sessions,
+          runs,
+          rpcAvailable: true,
+          polledAt: Date.now(),
+        });
         return Response.json({
           success: true,
           data: {
             action,
             childSessionId: body.childSessionId,
-            ...(tree ? { tree } : {}),
+            tree,
           },
         } satisfies SubagentControlResponse);
       } catch (error) {
-        const rpcError = rpcErrorOf(error);
-        if (rpcError) {
-          if (rpcError.code === "not_found" || rpcError.code === "invalid_state" || rpcError.code === "no_active_session") {
-            return Response.json({ error: rpcError.message }, { status: 409 });
-          }
-          if (rpcError.code === "invalid_params" || rpcError.code === "invalid_request") {
-            return Response.json({ error: rpcError.message }, { status: 400 });
-          }
-          if (rpcError.code === "timeout") {
-            return Response.json({ error: rpcError.message }, { status: 504 });
-          }
-        }
-        return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 502 });
+        // The controller reports invalid state (not running, no longer queued)
+        // and missing children as plain errors; a conflict is the honest answer.
+        return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 409 });
       }
     } catch (error) {
       return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });

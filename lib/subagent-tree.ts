@@ -1,4 +1,3 @@
-import type { SubagentRpcRunEntry, SubagentRpcRunStatus } from "./subagent-rpc";
 import type { SubagentLifecycleState, SubagentTreeNode, SubagentTreeResponse } from "./api-types";
 import type { SessionInfo } from "./types";
 import { attachSessionRelations, isReservedSubagentSessionName } from "./session-relations";
@@ -11,6 +10,44 @@ import { attachSessionRelations, isReservedSubagentSessionName } from "./session
 // matching live record is `inactive`; the server must never fabricate a
 // terminal outcome or timing from session metadata.
 // ============================================================================
+
+/**
+ * Live run record for one child, in the shape the tree joins on. The built-in
+ * runtime supplies these straight from the in-process controller, so there is
+ * no plugin handshake and no timeout to model here.
+ */
+type SubagentRunState =
+  | "queued"
+  | "running"
+  | "paused"
+  | "complete"
+  | "failed"
+  | "stopped"
+  | "rejected";
+
+interface SubagentRunEntry {
+  runId: string;
+  index?: number;
+  parentRunId?: string;
+  parentIndex?: number;
+  agent: string;
+  label?: string;
+  state: SubagentRunState;
+  activityState?: string;
+  currentTool?: string;
+  currentPath?: string;
+  startedAt?: number;
+  lastActivityAt?: number;
+  endedAt?: number;
+  updatedAt: number;
+}
+
+interface SubagentRunStatus {
+  version: 1;
+  entries: SubagentRunEntry[];
+  total: number;
+  omitted: number;
+}
 
 const LIVE_STATES = new Set<SubagentLifecycleState>([
   "starting",
@@ -29,7 +66,7 @@ function controlsFor(state: SubagentLifecycleState): Pick<SubagentTreeNode, "can
   };
 }
 
-function lifecycleFromRun(entry: SubagentRpcRunEntry): SubagentLifecycleState {
+function lifecycleFromRun(entry: SubagentRunEntry): SubagentLifecycleState {
   if (entry.activityState === "needs_attention" && entry.state === "running") return "needs_attention";
   switch (entry.state) {
     case "queued": return "queued";
@@ -43,7 +80,7 @@ function lifecycleFromRun(entry: SubagentRpcRunEntry): SubagentLifecycleState {
   }
 }
 
-function activityFromRun(entry: SubagentRpcRunEntry): string | undefined {
+function activityFromRun(entry: SubagentRunEntry): string | undefined {
   if (entry.currentTool) return entry.currentTool;
   if (entry.activityState === "needs_attention") return "needs_attention";
   return entry.activityState;
@@ -83,8 +120,8 @@ function firstLineOf(message: string): string {
   return newline === -1 ? message : message.slice(0, newline);
 }
 
-function liveByAddress(runs: SubagentRpcRunStatus | null): Map<string, SubagentRpcRunEntry> {
-  const byAddress = new Map<string, SubagentRpcRunEntry>();
+function liveByAddress(runs: SubagentRunStatus | null): Map<string, SubagentRunEntry> {
+  const byAddress = new Map<string, SubagentRunEntry>();
   for (const entry of runs?.entries ?? []) {
     const key = addressOf(entry.runId, entry.index);
     const existing = byAddress.get(key);
@@ -100,40 +137,83 @@ interface DurableNode {
   parentSessionId: string;
 }
 
+function primarySessionIds(related: SessionInfo[]): Set<string> {
+  return new Set(
+    related.filter((session) => session.sessionRole === "primary").map((session) => session.id),
+  );
+}
+
+// Ownership: a subagent belongs to `rootId` when its resolved root is this
+// root. Orphans (no parent) and subagents of another primary session are
+// excluded. A root that is itself a subagent or missing (parent chain
+// cycles, deleted parents) is ambiguous; attach those under this root.
+function ownedByRoot(session: SessionInfo, rootId: string, primaryIds: Set<string>): boolean {
+  if (session.sessionRole !== "subagent") return false;
+  const rootSessionId = session.rootSessionId;
+  if (rootSessionId === rootId) return true;
+  if (rootSessionId === undefined) {
+    // True orphans have no parent; broken parent chains still belong to the
+    // nearest requested root so their history stays visible.
+    return Boolean(session.parentSessionId);
+  }
+  return !primaryIds.has(rootSessionId);
+}
+
+export interface LiveSubagentOptions {
+  isRunning: (sessionId: string) => boolean;
+  /** Built-in run metadata for a child session, when the controller still holds it. */
+  getRun?: (sessionId: string) => { profile?: string; description?: string; createdAt?: string } | null;
+  now?: number;
+}
+
+/**
+ * Live subagents owned by `rootId`, in the shape the tree joins on. The built-in
+ * runtime keeps children in-process, so liveness is the child session's own
+ * wrapper: a finished child drops out and its durable node reads `inactive`.
+ */
+export function collectLiveSubagentRuns(
+  rootId: string,
+  sessions: SessionInfo[],
+  options: LiveSubagentOptions,
+): SubagentRunStatus | null {
+  const now = options.now ?? Date.now();
+  const related = attachSessionRelations(sessions);
+  const primaryIds = primarySessionIds(related);
+  const entries: SubagentRunEntry[] = [];
+  for (const session of related) {
+    if (!ownedByRoot(session, rootId, primaryIds)) continue;
+    if (!session.subagentRunId || !options.isRunning(session.id)) continue;
+    const run = options.getRun?.(session.id) ?? null;
+    const startedAt = run?.createdAt ? Date.parse(run.createdAt) : Number.NaN;
+    entries.push({
+      runId: session.subagentRunId,
+      ...(session.subagentIndex !== undefined ? { index: session.subagentIndex } : {}),
+      agent: run?.profile ?? session.subagentAgent ?? "subagent",
+      state: "running",
+      ...(run?.description ? { label: run.description } : {}),
+      ...(Number.isFinite(startedAt) ? { startedAt } : {}),
+      updatedAt: now,
+    });
+  }
+  return entries.length > 0 ? { version: 1, entries, total: entries.length, omitted: 0 } : null;
+}
+
 export function buildSubagentTree(input: {
   rootId: string;
   sessions: SessionInfo[];
-  runs: SubagentRpcRunStatus | null;
+  runs: SubagentRunStatus | null;
   rpcAvailable: boolean;
   unavailableReason?: SubagentTreeResponse["unavailableReason"];
   polledAt: number;
 }): SubagentTreeResponse {
   const { rootId, sessions, runs, rpcAvailable, unavailableReason, polledAt } = input;
   const related = attachSessionRelations(sessions);
-
-  // Ownership: a subagent belongs to `rootId` when its resolved root is this
-  // root. Orphans (no parent) and subagents of another primary session are
-  // excluded. A root that is itself a subagent or missing (parent chain
-  // cycles, deleted parents) is ambiguous; attach those under this root.
-  const primaryIds = new Set(
-    related.filter((session) => session.sessionRole === "primary").map((session) => session.id),
-  );
-  const ownedByRoot = (session: SessionInfo): boolean => {
-    if (session.sessionRole !== "subagent") return false;
-    const rootSessionId = session.rootSessionId;
-    if (rootSessionId === rootId) return true;
-    if (rootSessionId === undefined) {
-      // True orphans have no parent; broken parent chains still belong to the
-      // nearest requested root so their history stays visible.
-      return Boolean(session.parentSessionId);
-    }
-    return !primaryIds.has(rootSessionId);
-  };
+  const primaryIds = primarySessionIds(related);
 
   // Durable nodes owned by this root, keyed by session id.
   const durableBySessionId = new Map<string, DurableNode>();
   for (const session of related) {
-    if (!ownedByRoot(session)) continue;
+    if (!ownedByRoot(session, rootId, primaryIds)) continue;
     durableBySessionId.set(session.id, {
       session,
       parentSessionId: session.parentSessionId ?? rootId,
@@ -329,7 +409,7 @@ const LIVE_SIDEBAR_STATES = new Set<SubagentLifecycleState>([
 /** Durable child session ids whose live run is still active. */
 export function collectLiveSubagentSessionIds(
   sessions: SessionInfo[],
-  runs: SubagentRpcRunStatus | null,
+  runs: SubagentRunStatus | null,
 ): string[] {
   if (!runs) return [];
   const related = attachSessionRelations(sessions);

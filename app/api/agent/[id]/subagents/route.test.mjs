@@ -4,7 +4,6 @@ import { createJiti } from "jiti";
 
 const jiti = createJiti(import.meta.url, { alias: { "@": process.cwd() }, moduleCache: false });
 const { createSubagentHandlers } = await jiti.import("./route.ts");
-const { SubagentRpcClient } = await jiti.import("@/lib/subagent-rpc.ts");
 
 function session(id, name, parentSessionId, overrides = {}) {
   return {
@@ -29,63 +28,50 @@ function sessionsFixture() {
   ];
 }
 
-/** Fake wrapper whose RPC client talks to a controllable fake bus. */
-class FakeBridge {
-  constructor() {
-    this.handlers = new Map();
-    this.requestLog = [];
-    this.capabilities = { status: true, fleetStatus: { version: 1 }, runStatus: { version: 1 } };
-    this.statusReply = null;
-    this.controlError = null;
-    this.controlResult = null;
-  }
-
-  on(channel, handler) {
-    const list = this.handlers.get(channel) ?? [];
-    list.push(handler);
-    this.handlers.set(channel, list);
-    return () => {
-      this.handlers.set(channel, list.filter((candidate) => candidate !== handler));
-    };
-  }
-
-  emit(channel, data) {
-    this.requestLog.push({ channel, data });
-    const reply = (payload) => {
-      for (const handler of [...(this.handlers.get(`subagents:rpc:v1:reply:${data.requestId}`) ?? [])]) handler(payload);
-    };
-    if (channel !== "subagents:rpc:v1:request") return;
-    if (data.method === "ping") {
-      reply({ version: 1, requestId: data.requestId, method: "ping", success: true, data: { version: 1, capabilities: this.capabilities } });
-    } else if (data.method === "status") {
-      if (this.statusReply === "timeout") return; // never reply
-      reply({ version: 1, requestId: data.requestId, method: "status", success: true, data: { runs: this.statusReply ?? { version: 1, entries: [], total: 0, omitted: 0 } } });
-    } else if (this.controlError) {
-      reply({ version: 1, requestId: data.requestId, method: data.method, success: false, error: this.controlError });
-    } else {
-      reply({ version: 1, requestId: data.requestId, method: data.method, success: true, data: this.controlResult ?? { ok: true } });
-    }
-  }
-}
-
-function makeDeps(bridge, { live = true, startFails = false, noFile = false, running = false, list = sessionsFixture() } = {}) {
+/**
+ * Fake route deps backed by the built-in in-process runtime: liveness is a set of
+ * child session ids and controls are recorded calls.
+ */
+function makeDeps({
+  live = true,
+  startFails = false,
+  noFile = false,
+  running = [],
+  list = sessionsFixture(),
+  runs = new Map(),
+  controlError = null,
+} = {}) {
+  const runningIds = new Set(running);
+  const calls = { started: [], steer: [], abort: [] };
   let alive = live;
   const wrapper = {
     isAlive: () => alive,
-    isRunning: () => alive && running,
-    getSubagentRpcClient: async () => new SubagentRpcClient({ events: bridge }),
+    isRunning: () => alive,
+    setLiveSubagentSessionIds: () => false,
   };
   return {
     listSessions: async () => list,
     getWrapper: () => (alive ? wrapper : undefined),
-    startWrapper: async () => {
+    startWrapper: async (id, filePath) => {
       if (startFails) throw new Error("startup failed");
+      calls.started.push({ id, filePath });
       alive = true;
       return { session: wrapper };
     },
-    resolveSessionPath: async () => (noFile ? null : `/tmp/root.jsonl`),
-    bridge,
-    kill: () => { alive = false; },
+    resolveSessionPath: async () => (noFile ? null : "/tmp/root.jsonl"),
+    isChildRunning: (id) => alive && runningIds.has(id),
+    getSubagentRun: async (id) => runs.get(id) ?? null,    steerSubagent: async (id, message) => {
+      calls.steer.push({ id, message });
+      if (controlError) throw controlError;
+    },
+    abortSubagent: async (id) => {
+      calls.abort.push({ id });
+      if (controlError) throw controlError;
+    },
+    calls,
+    kill: () => {
+      alive = false;
+    },
   };
 }
 
@@ -93,168 +79,130 @@ function json(response) {
   return response.json();
 }
 
+function get(id, deps) {
+  const { GET } = createSubagentHandlers(deps);
+  return GET(new Request("http://x/"), { params: Promise.resolve({ id }) });
+}
+
+function post(body, deps) {
+  const { POST } = createSubagentHandlers(deps);
+  return POST(
+    new Request("http://x/", { method: "POST", body: JSON.stringify(body) }),
+    { params: Promise.resolve({ id: "root" }) },
+  );
+}
+
 test("GET unknown root returns 404", async () => {
-  const { GET } = createSubagentHandlers(makeDeps(new FakeBridge()));
-  const response = await GET(new Request("http://x/"), { params: Promise.resolve({ id: "missing" }) });
+  const response = await get("missing", makeDeps());
   assert.equal(response.status, 404);
 });
 
 test("GET a child id used as root returns 400", async () => {
-  const { GET } = createSubagentHandlers(makeDeps(new FakeBridge()));
-  const response = await GET(new Request("http://x/"), { params: Promise.resolve({ id: "child" }) });
+  const response = await get("child", makeDeps());
   assert.equal(response.status, 400);
 });
 
 test("GET root without a session file returns durable tree with offline reason", async () => {
-  const deps = makeDeps(new FakeBridge(), { live: false, noFile: true });
-  const { GET } = createSubagentHandlers(deps);
-  const response = await GET(new Request("http://x/"), { params: Promise.resolve({ id: "root" }) });
+  const response = await get("root", makeDeps({ live: false, noFile: true }));
   assert.equal(response.status, 200);
   const body = await json(response);
-  assert.equal(body.rootSessionId, "root");
   assert.equal(body.rpcAvailable, false);
   assert.equal(body.unavailableReason, "offline");
   assert.equal(body.nodes.length, 1);
   assert.equal(body.nodes[0].sessionId, "child");
   assert.equal(body.nodes[0].state, "inactive");
+  assert.equal(body.nodes[0].children.length, 1);
 });
 
 test("GET starts an absent root wrapper without a prompt", async () => {
-  const deps = makeDeps(new FakeBridge(), { live: false });
-  const { GET } = createSubagentHandlers(deps);
-  const response = await GET(new Request("http://x/"), { params: Promise.resolve({ id: "root" }) });
+  const deps = makeDeps({ live: false });
+  const response = await get("root", deps);
   assert.equal(response.status, 200);
-  const body = await json(response);
-  assert.equal(body.rpcAvailable, true);
-  assert.equal(body.nodes[0].state, "inactive");
-});
-
-test("GET startup failure returns durable tree with offline reason", async () => {
-  const deps = makeDeps(new FakeBridge(), { live: false, startFails: true });
-  const { GET } = createSubagentHandlers(deps);
-  const response = await GET(new Request("http://x/"), { params: Promise.resolve({ id: "root" }) });
-  assert.equal(response.status, 200);
-  assert.equal((await json(response)).unavailableReason, "offline");
-});
-
-test("GET reuses a live root wrapper without starting a new one", async () => {
-  let started = 0;
-  const deps = makeDeps(new FakeBridge(), { live: true });
-  deps.startWrapper = async () => { started += 1; throw new Error("must not start"); };
-  const { GET } = createSubagentHandlers(deps);
-  const response = await GET(new Request("http://x/"), { params: Promise.resolve({ id: "root" }) });
-  assert.equal(response.status, 200);
-  assert.equal(started, 0);
+  assert.deepEqual(deps.calls.started, [{ id: "root", filePath: "/tmp/root.jsonl" }]);
   assert.equal((await json(response)).rpcAvailable, true);
 });
 
-test("GET missing runStatus capability returns durable tree with incompatible reason", async () => {
-  const bridge = new FakeBridge();
-  bridge.capabilities = { status: true, fleetStatus: { version: 1 } };
-  const { GET } = createSubagentHandlers(makeDeps(bridge));
-  const response = await GET(new Request("http://x/"), { params: Promise.resolve({ id: "root" }) });
+test("GET startup failure returns durable tree with offline reason", async () => {
+  const response = await get("root", makeDeps({ live: false, startFails: true }));
   assert.equal(response.status, 200);
   const body = await json(response);
   assert.equal(body.rpcAvailable, false);
-  assert.equal(body.unavailableReason, "incompatible");
-  assert.equal(body.nodes[0].state, "inactive");
+  assert.equal(body.unavailableReason, "offline");
+  assert.equal(body.nodes[0].sessionId, "child");
 });
 
-test("GET no ping reply returns durable tree with not-installed reason", async () => {
-  const bridge = new FakeBridge();
-  const originalEmit = bridge.emit.bind(bridge);
-  bridge.emit = (channel, data) => {
-    if (data.method === "ping") return; // never answer
-    originalEmit(channel, data);
-  };
-  const { GET } = createSubagentHandlers(makeDeps(bridge));
-  const response = await GET(new Request("http://x/"), { params: Promise.resolve({ id: "root" }) });
+test("GET reuses a live root wrapper without starting a new one", async () => {
+  const deps = makeDeps();
+  const response = await get("root", deps);
   assert.equal(response.status, 200);
-  const body = await json(response);
-  assert.equal(body.unavailableReason, "not-installed");
+  assert.equal(deps.calls.started.length, 0);
+  assert.equal((await json(response)).rpcAvailable, true);
 });
 
-test("GET status timeout after negotiation returns 504 with durable fallback", async () => {
-  const bridge = new FakeBridge();
-  bridge.statusReply = "timeout";
-  const { GET } = createSubagentHandlers(makeDeps(bridge));
-  const response = await GET(new Request("http://x/"), { params: Promise.resolve({ id: "root" }) });
-  assert.equal(response.status, 504);
-  const body = await json(response);
-  assert.equal(body.error, "subagent status timeout");
-  assert.equal(body.busy, undefined);
-  assert.equal(body.fallback.rootSessionId, "root");
-  assert.equal(body.fallback.nodes.length, 1);
-  assert.equal(body.fallback.nodes[0].sessionId, "child");
-  assert.equal(body.fallback.nodes[0].children.length, 1);
-});
-
-test("GET status timeout while the parent is running marks the 504 as busy", async () => {
-  const bridge = new FakeBridge();
-  bridge.statusReply = "timeout";
-  const { GET } = createSubagentHandlers(makeDeps(bridge, { running: true }));
-  const response = await GET(new Request("http://x/"), { params: Promise.resolve({ id: "root" }) });
-  assert.equal(response.status, 504);
-  const body = await json(response);
-  assert.equal(body.error, "subagent status timeout");
-  assert.equal(body.busy, true);
-  assert.equal(body.fallback.rootSessionId, "root");
-});
-
-test("GET compatible status returns the exact nested contract", async () => {
-  const bridge = new FakeBridge();
-  bridge.statusReply = {
-    version: 1,
-    entries: [
-      { runId: "317e1ca0", index: 0, agent: "worker", state: "running", currentTool: "bash", startedAt: 1000, updatedAt: 1100 },
-      { runId: "76fa6d64-6031-4824-8a88-1282c22d9afa", index: 1, agent: "reviewer", state: "running", startedAt: 1050, updatedAt: 1090 },
-    ],
-    total: 2,
-    omitted: 0,
-  };
-  const { GET } = createSubagentHandlers(makeDeps(bridge));
-  const response = await GET(new Request("http://x/"), { params: Promise.resolve({ id: "root" }) });
+test("GET reports a running child as live with the nested contract", async () => {
+  const runs = new Map([
+    ["child", { profile: "worker", description: "Do the thing", createdAt: "2026-01-01T00:00:01.000Z" }],
+    ["grand", { profile: "reviewer", description: "Review it" }],
+  ]);
+  const response = await get("root", makeDeps({ running: ["child", "grand"], runs }));
   assert.equal(response.status, 200);
   const body = await json(response);
   assert.equal(body.rpcAvailable, true);
   assert.equal(body.nodes.length, 1);
+
   const child = body.nodes.find((node) => node.sessionId === "child");
   assert.equal(child.state, "running");
-  assert.equal(child.activity, "bash");
+  assert.equal(child.agent, "worker");
+  assert.equal(child.task, "Do the thing");
   assert.equal(child.canInterrupt, true);
   assert.equal(child.children.length, 1);
   assert.equal(child.children[0].sessionId, "grand");
   assert.equal(child.children[0].state, "running");
+  assert.equal(child.children[0].agent, "reviewer");
   assert.ok(body.polledAt > 0);
+});
+
+test("GET keeps finished children inactive when their runtime is gone", async () => {
+  // Session names still carry the subagent shape, but no wrapper is running.
+  const response = await get("root", makeDeps({ running: [] }));
+  assert.equal(response.status, 200);
+  const body = await json(response);
+  assert.equal(body.nodes[0].state, "inactive");
+  assert.equal(body.nodes[0].canInterrupt, false);
+  assert.equal(body.nodes[0].children[0].state, "inactive");
 });
 
 test("GET lists sessions through the dep so durable nodes are found", async () => {
   const calls = [];
-  const deps = makeDeps(new FakeBridge());
-  deps.listSessions = async () => { calls.push("list"); return sessionsFixture(); };
-  const { GET } = createSubagentHandlers(deps);
-  await GET(new Request("http://x/"), { params: Promise.resolve({ id: "root" }) });
+  const deps = makeDeps();
+  deps.listSessions = async () => {
+    calls.push("list");
+    return sessionsFixture();
+  };
+  await get("root", deps);
   assert.deepEqual(calls, ["list"]);
 });
 
 test("POST rejects unsupported actions and blank messages", async () => {
-  const { POST } = createSubagentHandlers(makeDeps(new FakeBridge()));
-  const params = Promise.resolve({ id: "root" });
+  const deps = makeDeps();
 
-  let response = await POST(new Request("http://x/", { method: "POST", body: JSON.stringify({ childSessionId: "child", action: "stop" }) }), { params });
+  let response = await post({ childSessionId: "child", action: "stop" }, deps);
   assert.equal(response.status, 400);
 
-  response = await POST(new Request("http://x/", { method: "POST", body: JSON.stringify({ childSessionId: "child", action: "steer" }) }), { params });
+  response = await post({ childSessionId: "child", action: "steer" }, deps);
   assert.equal(response.status, 400);
 
-  response = await POST(new Request("http://x/", { method: "POST", body: JSON.stringify({ childSessionId: "child", action: "resume", message: "   " }) }), { params });
+  response = await post({ childSessionId: "child", action: "resume", message: "   " }, deps);
   assert.equal(response.status, 400);
 
-  response = await POST(new Request("http://x/", { method: "POST", body: JSON.stringify({ childSessionId: "child", action: "interrupt", message: "nope" }) }), { params });
+  response = await post({ childSessionId: "child", action: "interrupt", message: "nope" }, deps);
   assert.equal(response.status, 400);
 
-  response = await POST(new Request("http://x/", { method: "POST", body: JSON.stringify({ action: "interrupt" }) }), { params });
+  response = await post({ action: "interrupt" }, deps);
   assert.equal(response.status, 400);
+
+  assert.deepEqual(deps.calls.steer, []);
+  assert.deepEqual(deps.calls.abort, []);
 });
 
 test("POST rejects foreign, orphan, and placeholder child ids", async () => {
@@ -264,164 +212,110 @@ test("POST rejects foreign, orphan, and placeholder child ids", async () => {
     session("foreign", "subagent-worker-33333333-0", "other-root"),
     session("orphan", "subagent-worker-44444444-1"),
   ];
-  const { POST } = createSubagentHandlers(makeDeps(new FakeBridge(), { list }));
-  const params = Promise.resolve({ id: "root" });
+  const deps = makeDeps({ list });
 
-  let response = await POST(new Request("http://x/", { method: "POST", body: JSON.stringify({ childSessionId: "foreign", action: "interrupt" }) }), { params });
+  let response = await post({ childSessionId: "foreign", action: "interrupt" }, deps);
   assert.equal(response.status, 400);
 
-  response = await POST(new Request("http://x/", { method: "POST", body: JSON.stringify({ childSessionId: "orphan", action: "interrupt" }) }), { params });
+  response = await post({ childSessionId: "orphan", action: "interrupt" }, deps);
   assert.equal(response.status, 400);
 
-  response = await POST(new Request("http://x/", { method: "POST", body: JSON.stringify({ childSessionId: "root", action: "interrupt" }) }), { params });
+  response = await post({ childSessionId: "root", action: "interrupt" }, deps);
   assert.equal(response.status, 400);
+
+  assert.deepEqual(deps.calls.abort, []);
 });
 
-test("POST derives runId/index server-side and ignores browser target fields", async () => {
-  const bridge = new FakeBridge();
-  const { POST } = createSubagentHandlers(makeDeps(bridge));
-  const response = await POST(new Request("http://x/", {
-    method: "POST",
-    body: JSON.stringify({ childSessionId: "child", action: "steer", message: "keep going", runId: "evil", index: 99 }),
-  }), { params: Promise.resolve({ id: "root" }) });
+test("POST steers the resolved child and ignores browser target fields", async () => {
+  const deps = makeDeps();
+  const response = await post(
+    { childSessionId: "child", action: "steer", message: "keep going", runId: "evil", index: 99, asyncDir: "/tmp/evil" },
+    deps,
+  );
   assert.equal(response.status, 200);
-
-  const steer = bridge.requestLog.find((entry) => entry.data.method === "steer");
-  assert.deepEqual(steer.data.params, { runId: "317e1ca0", index: 0, message: "keep going" });
+  // The child session id is the run identity; browser-supplied fields are dropped.
+  assert.deepEqual(deps.calls.steer, [{ id: "child", message: "keep going" }]);
+  assert.deepEqual(deps.calls.abort, []);
 });
 
-test("POST routes controls through the root wrapper only", async () => {
-  const bridge = new FakeBridge();
-  let started = 0;
-  const deps = makeDeps(bridge, { live: false });
-  deps.startWrapper = async (id, filePath) => {
-    started += 1;
-    assert.equal(id, "root");
-    assert.equal(filePath, "/tmp/root.jsonl");
-    return { session: { isAlive: () => true, getSubagentRpcClient: async () => new SubagentRpcClient({ events: bridge }) } };
-  };
-  const { POST } = createSubagentHandlers(deps);
-  const response = await POST(new Request("http://x/", {
-    method: "POST",
-    body: JSON.stringify({ childSessionId: "grand", action: "resume", message: "go on" }),
-  }), { params: Promise.resolve({ id: "root" }) });
+test("POST interrupt aborts the resolved child", async () => {
+  const deps = makeDeps();
+  const response = await post({ childSessionId: "grand", action: "interrupt" }, deps);
   assert.equal(response.status, 200);
-  assert.equal(started, 1);
-  const resume = bridge.requestLog.find((entry) => entry.data.method === "resume");
-  assert.deepEqual(resume.data.params, { runId: "76fa6d64-6031-4824-8a88-1282c22d9afa", index: 1, message: "go on" });
+  assert.deepEqual(deps.calls.abort, [{ id: "grand" }]);
+  assert.deepEqual(deps.calls.steer, []);
+});
+
+test("POST starts the root wrapper before a control runs", async () => {
+  const deps = makeDeps({ live: false });
+  const response = await post({ childSessionId: "child", action: "steer", message: "go on" }, deps);
+  assert.equal(response.status, 200);
+  assert.deepEqual(deps.calls.started, [{ id: "root", filePath: "/tmp/root.jsonl" }]);
 });
 
 test("POST offline root returns 409", async () => {
-  const deps = makeDeps(new FakeBridge(), { live: false, noFile: true });
-  const { POST } = createSubagentHandlers(deps);
-  const response = await POST(new Request("http://x/", {
-    method: "POST",
-    body: JSON.stringify({ childSessionId: "child", action: "interrupt" }),
-  }), { params: Promise.resolve({ id: "root" }) });
+  const deps = makeDeps({ live: false, noFile: true });
+  const response = await post({ childSessionId: "child", action: "interrupt" }, deps);
   assert.equal(response.status, 409);
+  assert.deepEqual(deps.calls.abort, []);
 });
 
-test("POST maps rpc not_found and invalid_state to 409", async () => {
-  for (const code of ["not_found", "invalid_state"]) {
-    const bridge = new FakeBridge();
-    bridge.controlError = { code, message: `${code} happened` };
-    const { POST } = createSubagentHandlers(makeDeps(bridge));
-    const response = await POST(new Request("http://x/", {
-      method: "POST",
-      body: JSON.stringify({ childSessionId: "child", action: "interrupt" }),
-    }), { params: Promise.resolve({ id: "root" }) });
+test("POST maps runtime control failures to 409", async () => {
+  for (const message of ["subagent is not running", "Subagent not found"]) {
+    const deps = makeDeps({ controlError: new Error(message) });
+    const response = await post({ childSessionId: "child", action: "interrupt" }, deps);
     assert.equal(response.status, 409);
-    assert.equal((await json(response)).error, `${code} happened`);
+    assert.equal((await json(response)).error, message);
   }
 });
 
-test("POST success returns the acknowledgement and a fresh tree when available", async () => {
-  const bridge = new FakeBridge();
-  bridge.statusReply = {
-    version: 1,
-    entries: [{ runId: "317e1ca0", index: 0, agent: "worker", state: "paused", startedAt: 1000, updatedAt: 1100 }],
-    total: 1,
-    omitted: 0,
-  };
-  const { POST } = createSubagentHandlers(makeDeps(bridge));
-  const response = await POST(new Request("http://x/", {
-    method: "POST",
-    body: JSON.stringify({ childSessionId: "child", action: "interrupt" }),
-  }), { params: Promise.resolve({ id: "root" }) });
+test("POST resume is rejected because only the parent Agent tool can restart a child", async () => {
+  const deps = makeDeps();
+  const response = await post({ childSessionId: "child", action: "resume", message: "go on" }, deps);
+  assert.equal(response.status, 400);
+  assert.match((await json(response)).error, /not supported/);
+  assert.deepEqual(deps.calls.steer, []);
+});
+
+test("POST success returns the acknowledgement and a fresh tree", async () => {
+  const deps = makeDeps();
+  const response = await post({ childSessionId: "child", action: "interrupt" }, deps);
   assert.equal(response.status, 200);
   const body = await json(response);
   assert.equal(body.success, true);
   assert.equal(body.data.action, "interrupt");
   assert.equal(body.data.childSessionId, "child");
   assert.equal(body.data.control, undefined);
-  assert.equal(body.data.tree.nodes[0].state, "paused");
+  assert.equal(body.data.tree.rootSessionId, "root");
+  assert.equal(body.data.tree.nodes[0].sessionId, "child");
+  assert.equal(body.data.tree.nodes[0].state, "inactive");
 });
 
-test("POST success returns only the public DTO and never the raw rpc control result", async () => {
-  const bridge = new FakeBridge();
-  bridge.controlResult = {
-    ok: true,
-    details: {
-      asyncDir: "/tmp/private-async",
-      sessionFile: "/Users/kale/.pi/agent/sessions/private.jsonl",
-      transcriptPath: "/tmp/private-transcript.jsonl",
-      capabilityToken: "secret-token",
-      controlInbox: "/tmp/control-inbox",
-      intercomTarget: "private-target",
-    },
-  };
-  bridge.statusReply = {
-    version: 1,
-    entries: [{ runId: "317e1ca0", index: 0, agent: "worker", state: "paused", startedAt: 1000, updatedAt: 1100 }],
-    total: 1,
-    omitted: 0,
-  };
-  const { POST } = createSubagentHandlers(makeDeps(bridge));
-  const response = await POST(new Request("http://x/", {
-    method: "POST",
-    body: JSON.stringify({ childSessionId: "child", action: "interrupt" }),
-  }), { params: Promise.resolve({ id: "root" }) });
+test("POST success returns only the public DTO and never internal run paths", async () => {
+  const deps = makeDeps();
+  const response = await post({ childSessionId: "child", action: "interrupt" }, deps);
   assert.equal(response.status, 200);
   const body = await json(response);
   assert.equal(body.success, true);
-  assert.equal(body.data.action, "interrupt");
-  assert.equal(body.data.childSessionId, "child");
-  assert.equal(body.data.tree?.rootSessionId, "root");
-  assert.equal(body.data.control, undefined);
-  assert.doesNotMatch(JSON.stringify(body), /asyncDir|sessionFile|transcriptPath|capabilityToken|controlInbox|intercomTarget/);
+  assert.doesNotMatch(
+    JSON.stringify(body),
+    /asyncDir|sessionFile|transcriptPath|capabilityToken|controlInbox|intercomTarget/,
+  );
 });
 
-test("POST returns the changed tree snapshot after control and never the raw rpc result", async () => {
-  const bridge = new FakeBridge();
-  bridge.statusReply = {
-    version: 1,
-    entries: [{ runId: "317e1ca0", index: 0, agent: "worker", state: "running", startedAt: 1000, updatedAt: 1100 }],
-    total: 1,
-    omitted: 0,
-  };
-  const { GET, POST } = createSubagentHandlers(makeDeps(bridge));
-  const params = Promise.resolve({ id: "root" });
-
-  const before = await json(await GET(new Request("http://x/"), { params }));
+test("POST reflects the changed liveness in the returned tree", async () => {
+  const deps = makeDeps({ running: ["child"] });
+  const before = await json(await get("root", deps));
   assert.equal(before.nodes[0].state, "running");
 
-  bridge.statusReply = {
-    version: 1,
-    entries: [{ runId: "317e1ca0", index: 0, agent: "worker", state: "paused", startedAt: 1000, updatedAt: 1200 }],
-    total: 1,
-    omitted: 0,
-  };
-  const response = await POST(new Request("http://x/", {
-    method: "POST",
-    body: JSON.stringify({ childSessionId: "child", action: "interrupt" }),
-  }), { params });
-  assert.equal(response.status, 200);
-  const body = await json(response);
+  // The control succeeds and the child is no longer running.
+  deps.isChildRunning = () => false;
+  const body = await json(await post({ childSessionId: "child", action: "interrupt" }, deps));
   assert.equal(body.success, true);
   assert.equal(body.data.action, "interrupt");
   assert.equal(body.data.childSessionId, "child");
   assert.equal(body.data.tree.nodes[0].sessionId, "child");
-  assert.equal(body.data.tree.nodes[0].state, "paused");
+  assert.equal(body.data.tree.nodes[0].state, "inactive");
   assert.equal(body.data.control, undefined);
 });
 

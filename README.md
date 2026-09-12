@@ -20,7 +20,7 @@ Requires Node.js 22.19.0 or newer. Pi Web opens the browser when ready and liste
 - **Live agent work** — streamed thinking and tool calls, folded process details, a conversation plan that stays after the turn settles, and completion feedback when a run finishes in another project.
 - **Queue and interject** — while the agent is running, Enter queues a follow-up; the filled send control steers the current turn. Stop stays a separate outlined control.
 - **Two ways to branch** — **Fork** writes an independent session file from a message; **Edit from here** branches inside the current session.
-- **Subagent visualization** — a live recursive tree of delegated runs, read-only child transcripts in the same workspace, and steer / pause-and-resume routed through the owning root. Needs a `pi-subagents` build with `runStatus`; older builds keep full read-only history.
+- **Subagent visualization** — a live recursive tree of delegated runs, read-only child transcripts in the same workspace, and steer / interrupt routed through the owning root. Runs on the built-in subagent runtime, so no `pi-subagents` plugin is required.
 - **Files beside the chat** — browse and upload, inspect Git diffs, and preview source, Markdown, images, audio, PDFs, and DOCX with automatic refresh.
 - **Git worktrees** — create, switch, and remove linked checkouts; sessions from the same repo stay grouped.
 - **Settings in the browser** — providers, OAuth, API keys, models, skills, plugins, appearance, project trust, and **Remote access**. Changes use pi's local storage and apply to both UIs.
