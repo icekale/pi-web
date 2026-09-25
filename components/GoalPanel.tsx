@@ -1,5 +1,6 @@
 "use client";
 
+import { ChevronRight } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import type { GoalEditMode, GoalPanelModel, GoalPanelStatus } from "@/lib/goal-panel";
@@ -26,6 +27,7 @@ export function GoalPanel({
 }) {
   const { t } = useI18n();
   const [isEditing, setIsEditing] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   const [draft, setDraft] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -48,6 +50,7 @@ export function GoalPanel({
 
   const startEdit = () => {
     setDraft(model.objective);
+    setExpanded(true);
     setIsEditing(true);
   };
 
@@ -68,11 +71,20 @@ export function GoalPanel({
   };
 
   return (
-    <div className="goal-panel">
+    <div className={expanded ? "goal-panel" : "goal-panel is-collapsed"}>
       <div className="goal-panel-head">
-        <span className="goal-panel-dot" title={model.statusLabel} style={{ background: dotColor }} />
-        <span className="goal-panel-status" style={{ color: dotColor }}>{model.statusLabel}</span>
-        {meta && <span className="goal-panel-meta">{meta}{model.budgetLabel ? "t" : ""}</span>}
+        <button
+          type="button"
+          className="goal-panel-toggle"
+          aria-expanded={expanded}
+          title={t(expanded ? "i18n.collapse" : "i18n.expand")}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          <span className="goal-panel-dot" title={model.statusLabel} style={{ background: dotColor }} />
+          <span className="goal-panel-status" style={{ color: dotColor }}>{model.statusLabel}</span>
+          {meta && <span className="goal-panel-meta">{meta}{model.budgetLabel ? "t" : ""}</span>}
+          <ChevronRight size={14} aria-hidden="true" className="goal-panel-chevron" />
+        </button>
         <div className="goal-panel-actions">
           {model.status === "active" && (
             <button type="button" className="goal-panel-btn" onClick={() => onAction("pause")}>{t("chat.goalPause")}</button>
@@ -86,7 +98,7 @@ export function GoalPanel({
           <button type="button" className="goal-panel-btn" onClick={() => onAction("clear")}>{t("chat.goalClear")}</button>
         </div>
       </div>
-      {isEditing ? (
+      {expanded && isEditing ? (
         <div className="goal-panel-body">
           <textarea
             ref={textareaRef}
@@ -110,7 +122,7 @@ export function GoalPanel({
           </div>
         </div>
       ) : (
-        (model.objective || null) && <div className="goal-panel-body">{model.objective}</div>
+        expanded && model.objective ? <div className="goal-panel-body">{model.objective}</div> : null
       )}
     </div>
   );

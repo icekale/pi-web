@@ -33,6 +33,7 @@ test("renders an active goal with pause/edit/clear and hides when empty", () => 
   });
   assert.match(html, /goal-panel/);
   assert.match(html, /Ship GoalPanel/);
+  assert.match(html, /aria-expanded="true"/);
   assert.match(html, /12m · 1\.2K\/10Kt/);
   assert.match(html, /Pause|暂停/);
   assert.doesNotMatch(html, /Resume|继续/);
