@@ -31,6 +31,17 @@ export function missingCustomModelKeys(input: {
   return input.customKeys.filter((key) => !input.visibleKeys.has(key) && !input.disabledKeys.has(key));
 }
 
+export function removeMissingCustomModelKeys(
+  patterns: readonly string[],
+  customKeys: ReadonlySet<string>,
+  availableKeys: ReadonlySet<string>,
+): string[] {
+  return patterns.filter((pattern) => {
+    const normalized = pattern.trim();
+    return !customKeys.has(normalized) || availableKeys.has(normalized);
+  });
+}
+
 function disabledPath(): string {
   return join(getAgentDir(), "model-picker-disabled.json");
 }
@@ -70,19 +81,21 @@ export async function adoptCustomModels(
   const patterns = settings.getGlobalSettings().enabledModels;
   if (!patterns || patterns.length === 0) return;
 
-  const custom = customModelKeys();
-  const disabled = new Set(readDisabledCustomModels().filter((key) => custom.includes(key)));
+  const custom = new Set(customModelKeys());
+  const disabled = new Set(readDisabledCustomModels().filter((key) => custom.has(key)));
   const available = await modelRuntime.getAvailable();
   const availableKeys = new Set(available.map((model) => `${model.provider}/${model.id}`));
-  const scope = await resolveVisibleModels(modelRuntime, patterns);
+  const cleanedPatterns = removeMissingCustomModelKeys(patterns, custom, availableKeys);
+  const scope = await resolveVisibleModels(modelRuntime, cleanedPatterns);
   const visible = new Set(scope.visible.map((model) => `${model.provider}/${model.id}`));
   const missing = missingCustomModelKeys({
-    customKeys: custom.filter((key) => availableKeys.has(key)),
+    customKeys: [...custom],
     visibleKeys: visible,
     disabledKeys: disabled,
   });
-  if (missing.length === 0) return;
-  settings.setEnabledModels([...patterns, ...missing]);
+  const nextPatterns = [...new Set([...cleanedPatterns, ...missing])];
+  if (nextPatterns.length === patterns.length && nextPatterns.every((pattern, index) => pattern === patterns[index])) return;
+  settings.setEnabledModels(nextPatterns);
   await settings.flush();
   invalidateModelsCache();
 }
