@@ -20,6 +20,7 @@ import {
 } from "@/lib/file-types";
 import { encodeFilePathForApi, getFileDirectory, getFileName, getRelativeFilePath } from "@/lib/file-paths";
 import { resolveLocalFileHref } from "@/lib/file-links";
+import { loopbackProxyHref } from "@/lib/local-proxy";
 import { parseFrontmatter } from "@/lib/frontmatter";
 import { markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins, normalizeDisplayMath } from "@/lib/markdown";
 import { CodeBlock, MermaidBlock } from "./MermaidBlock";
@@ -1458,7 +1459,7 @@ function TextFileViewer({
                     ? resolveLocalFileHref(href, markdownDirectory, cwd ?? markdownDirectory)
                     : null;
                   if (!linkedFile || !onOpenFile) {
-                    return <a href={href} {...props}>{children}</a>;
+                    return <a href={loopbackProxyHref(href) ?? href} {...props}>{children}</a>;
                   }
 
                   const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
@@ -1477,7 +1478,7 @@ function TextFileViewer({
                     : null;
                   const imageSrc = imagePath
                     ? getFileApiUrl(imagePath, "read", sourceSessionId)
-                    : src;
+                    : (typeof src === "string" ? loopbackProxyHref(src) ?? src : src);
                   // Dynamic local paths are served directly by the file API.
                   return <img src={imageSrc} alt={alt ?? ""} loading="lazy" {...props} />;
                 },

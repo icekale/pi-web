@@ -30,6 +30,11 @@ test("opens non-file markdown links in a safe new tab", () => {
   assert.doesNotMatch(html, /\snode=/);
 });
 
+test("opens loopback links through the local proxy", () => {
+  const html = renderMarkdown("[app](http://127.0.0.1:8080/app)");
+  assert.match(html, /href="\/api\/local\/8080\/app"/);
+});
+
 test("keeps local file markdown links in the app", () => {
   const html = renderMarkdown("[file](components/MarkdownBody.tsx)");
 

@@ -179,6 +179,7 @@ export async function smokeAllRoutes({ origin, authHeaders = {} }) {
     await probe("GET", `/api/git/status?cwd=${encodeURIComponent(gitDir)}`, [200]);
     await probe("GET", `/api/git/diff?cwd=${encodeURIComponent(gitDir)}`, [200, 400]);
     await probe("GET", "/api/home", [200]);
+    await probe("GET", "/api/local/9", [502]);
     await probe("GET", "/api/models", [200, 403]);
     await probe("GET", "/api/models/scope", [200, 403]);
     await probe("PUT", "/api/models/scope", [400], {

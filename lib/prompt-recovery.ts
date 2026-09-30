@@ -1,6 +1,6 @@
-import type { AgentMessage } from "@/lib/types";
+type QueuedInputDisposition = "handled" | "queued";
 
-function extractMessageText(message: Partial<AgentMessage>): string {
+function extractMessageText(message: { content?: unknown }): string {
   const content = (message as { content?: unknown }).content;
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
@@ -36,7 +36,7 @@ function imageSignature(block: unknown): string {
   ].join(":");
 }
 
-export function userMessageKey(message: Partial<AgentMessage>): string {
+export function userMessageKey(message: { content?: unknown }): string {
   const content = (message as { content?: unknown }).content;
   if (typeof content === "string") return JSON.stringify({ text: content, images: [] });
   if (!Array.isArray(content)) return JSON.stringify({ text: "", images: [] });
@@ -47,7 +47,7 @@ export function userMessageKey(message: Partial<AgentMessage>): string {
 }
 
 /** Keep one optimistic user bubble when a system message lands before its echo. */
-export function absorbOptimisticUserMessage<T extends { role?: string }>(
+export function absorbOptimisticUserMessage<T extends { role?: string; content?: unknown }>(
   prev: T[],
   delivered: T,
   optimisticKey: string | null,

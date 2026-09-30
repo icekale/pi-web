@@ -182,7 +182,7 @@ export function boundTitleMessages(messages: AgentMessage[]): AgentMessage[] {
     if (message.role === "toolResult") continue;
     if (message.role === "assistant") {
       const text = clipTitleText(message.content
-        .filter((block) => block.type === "text" && block.text.trim())
+        .filter((block): block is { type: "text"; text: string } => block.type === "text" && block.text.trim().length > 0)
         .map((block) => block.text.trim())
         .join("\n"));
       if (!text) continue;

@@ -3,6 +3,7 @@
 import { useMemo, type MouseEvent } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import { resolveLocalFileHref } from "@/lib/file-links";
+import { loopbackProxyHref } from "@/lib/local-proxy";
 import { encodeFilePathForApi } from "@/lib/file-paths";
 import { markdownRehypePlugins, markdownRemarkPlugins, normalizeDisplayMath } from "@/lib/markdown";
 import { MermaidBlock, CodeBlock } from "./MermaidBlock";
@@ -55,7 +56,7 @@ export function MarkdownBody({ children, className, isStreaming, cwd, sessionId,
       const openFile = onOpenFile;
       if (!filePath) {
         return (
-          <a href={href} {...props} target="_blank" rel="noopener noreferrer">
+          <a href={loopbackProxyHref(href) ?? href} {...props} target="_blank" rel="noopener noreferrer">
             {children}
           </a>
         );
@@ -88,7 +89,7 @@ export function MarkdownBody({ children, className, isStreaming, cwd, sessionId,
     img({ src, alt, ...props }) {
       delete props.node;
       const filePath = typeof src === "string" ? resolveLocalFileHref(src, cwd) : null;
-      const imageSrc = filePath ? fileApiHref(filePath, sessionId) : src;
+      const imageSrc = filePath ? fileApiHref(filePath, sessionId) : (typeof src === "string" ? loopbackProxyHref(src) ?? src : src);
       // Dynamic local paths are served directly by the file API.
       return <img src={imageSrc} alt={alt ?? ""} loading="lazy" {...props} />;
     },

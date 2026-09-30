@@ -8,6 +8,7 @@ import {
   withSafeModelLoadFailure,
   type ModelsData,
 } from "@/lib/models-cache";
+import { adoptCustomModels } from "@/lib/custom-model-scope";
 import { resolveVisibleModels, selectInitialModelScope } from "@/lib/model-scope";
 import { getAllowedFileRoots, isExistingFilePathAllowed } from "@/lib/file-access";
 import { projectTrustReloadOptions } from "@/lib/project-trust";
@@ -45,6 +46,7 @@ async function loadModels(cwd: string): Promise<ModelsData> {
   const settings: SettingsManager = services.settingsManager;
   // `enabledModels` supports globs and fuzzy patterns, so resolve it the same
   // way the CLI does instead of comparing pattern strings literally (#307).
+  await adoptCustomModels(settings, services.modelRuntime);
   const scope = await resolveVisibleModels(
     services.modelRuntime,
     settings.getEnabledModels(),

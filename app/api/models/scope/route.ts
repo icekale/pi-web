@@ -2,6 +2,7 @@ import { stat } from "fs/promises";
 import { resolve } from "path";
 import { createAgentSessionServices, getAgentDir, type SettingsManager } from "@earendil-works/pi-coding-agent";
 import type { Api, Model } from "@earendil-works/pi-ai";
+import { adoptCustomModels, rememberCustomModelToggle } from "@/lib/custom-model-scope";
 import { invalidateModelsCache } from "@/lib/models-cache";
 import { matchModelPatterns, resolveVisibleModels } from "@/lib/model-scope";
 import { editModelScope, modelKey } from "@/lib/model-scope-edit";
@@ -58,6 +59,7 @@ function catalogOf(models: readonly Model<Api>[]): ScopeModel[] {
 async function readScope(cwd: string) {
   const services = await openServices(cwd);
   const settings: SettingsManager = services.settingsManager;
+  await adoptCustomModels(settings, services.modelRuntime);
   const available = await services.modelRuntime.getAvailable();
   const models = catalogOf(available);
   const projectPatterns = settings.getProjectSettings().enabledModels;
@@ -97,6 +99,8 @@ export async function PUT(req: Request) {
   if (!body || typeof body.provider !== "string" || !body.provider || typeof body.enabled !== "boolean") {
     return Response.json({ error: "Expected provider and enabled" }, { status: 400 });
   }
+  const provider = body.provider;
+  const enabled = body.enabled;
   if (body.id !== undefined && typeof body.id !== "string") {
     return Response.json({ error: "Expected model id" }, { status: 400 });
   }
@@ -112,14 +116,14 @@ export async function PUT(req: Request) {
     }
     const available = await services.modelRuntime.getAvailable();
     const catalog = catalogOf(available).map((model) => model.key);
-    const providerPrefix = `${body.provider}/`;
+    const providerPrefix = `${provider}/`;
     const requestedIds = Array.isArray(body.ids)
       ? body.ids.filter((id): id is string => typeof id === "string")
       : undefined;
     const target = requestedIds
-      ? requestedIds.map((id) => modelKey(body.provider, id))
+      ? requestedIds.map((id) => modelKey(provider, id))
       : typeof body.id === "string"
-        ? [modelKey(body.provider, body.id)]
+        ? [modelKey(provider, body.id)]
         : catalog.filter((key) => key.startsWith(providerPrefix));
     if (target.length === 0 || target.some((key) => !catalog.includes(key))) {
       return Response.json({ error: "Unknown model" }, { status: 400 });
@@ -128,6 +132,7 @@ export async function PUT(req: Request) {
     const matches = patterns.length > 0
       ? await matchModelPatterns(services.modelRuntime, patterns, available)
       : new Map<string, string[]>();
+    rememberCustomModelToggle(target, enabled);
     const next = editModelScope({
       patterns,
       catalog,

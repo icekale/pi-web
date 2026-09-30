@@ -37,6 +37,7 @@ import { Route as ApiCwdValidateRouteImport } from './routes/api/cwd/validate'
 import { Route as ApiFilesSplatRouteImport } from './routes/api/files/$'
 import { Route as ApiGitDiffRouteImport } from './routes/api/git/diff'
 import { Route as ApiGitStatusRouteImport } from './routes/api/git/status'
+import { Route as ApiLocalSplatRouteImport } from './routes/api/local/$'
 import { Route as ApiModelsConfigCatalogRouteImport } from './routes/api/models-config/catalog'
 import { Route as ApiModelsConfigDiscoverRouteImport } from './routes/api/models-config/discover'
 import { Route as ApiModelsConfigTestRouteImport } from './routes/api/models-config/test'
@@ -201,6 +202,11 @@ const ApiGitStatusRoute = ApiGitStatusRouteImport.update({
   path: '/api/git/status',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiLocalSplatRoute = ApiLocalSplatRouteImport.update({
+  id: '/api/local/$',
+  path: '/api/local/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiModelsConfigCatalogRoute = ApiModelsConfigCatalogRouteImport.update({
   id: '/catalog',
   path: '/catalog',
@@ -349,6 +355,7 @@ export interface FileRoutesByFullPath {
   '/api/files/$': typeof ApiFilesSplatRoute
   '/api/git/diff': typeof ApiGitDiffRoute
   '/api/git/status': typeof ApiGitStatusRoute
+  '/api/local/$': typeof ApiLocalSplatRoute
   '/api/models-config/catalog': typeof ApiModelsConfigCatalogRoute
   '/api/models-config/discover': typeof ApiModelsConfigDiscoverRoute
   '/api/models-config/test': typeof ApiModelsConfigTestRoute
@@ -402,6 +409,7 @@ export interface FileRoutesByTo {
   '/api/files/$': typeof ApiFilesSplatRoute
   '/api/git/diff': typeof ApiGitDiffRoute
   '/api/git/status': typeof ApiGitStatusRoute
+  '/api/local/$': typeof ApiLocalSplatRoute
   '/api/models-config/catalog': typeof ApiModelsConfigCatalogRoute
   '/api/models-config/discover': typeof ApiModelsConfigDiscoverRoute
   '/api/models-config/test': typeof ApiModelsConfigTestRoute
@@ -456,6 +464,7 @@ export interface FileRoutesById {
   '/api/files/$': typeof ApiFilesSplatRoute
   '/api/git/diff': typeof ApiGitDiffRoute
   '/api/git/status': typeof ApiGitStatusRoute
+  '/api/local/$': typeof ApiLocalSplatRoute
   '/api/models-config/catalog': typeof ApiModelsConfigCatalogRoute
   '/api/models-config/discover': typeof ApiModelsConfigDiscoverRoute
   '/api/models-config/test': typeof ApiModelsConfigTestRoute
@@ -511,6 +520,7 @@ export interface FileRouteTypes {
     | '/api/files/$'
     | '/api/git/diff'
     | '/api/git/status'
+    | '/api/local/$'
     | '/api/models-config/catalog'
     | '/api/models-config/discover'
     | '/api/models-config/test'
@@ -564,6 +574,7 @@ export interface FileRouteTypes {
     | '/api/files/$'
     | '/api/git/diff'
     | '/api/git/status'
+    | '/api/local/$'
     | '/api/models-config/catalog'
     | '/api/models-config/discover'
     | '/api/models-config/test'
@@ -617,6 +628,7 @@ export interface FileRouteTypes {
     | '/api/files/$'
     | '/api/git/diff'
     | '/api/git/status'
+    | '/api/local/$'
     | '/api/models-config/catalog'
     | '/api/models-config/discover'
     | '/api/models-config/test'
@@ -671,6 +683,7 @@ export interface RootRouteChildren {
   ApiFilesSplatRoute: typeof ApiFilesSplatRoute
   ApiGitDiffRoute: typeof ApiGitDiffRoute
   ApiGitStatusRoute: typeof ApiGitStatusRoute
+  ApiLocalSplatRoute: typeof ApiLocalSplatRoute
   ApiAuthApiKeyProviderRoute: typeof ApiAuthApiKeyProviderRoute
   ApiAuthLoginProviderRoute: typeof ApiAuthLoginProviderRoute
   ApiAuthLogoutProviderRoute: typeof ApiAuthLogoutProviderRoute
@@ -873,6 +886,13 @@ declare module '@tanstack/react-router' {
       path: '/api/git/status'
       fullPath: '/api/git/status'
       preLoaderRoute: typeof ApiGitStatusRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/local/$': {
+      id: '/api/local/$'
+      path: '/api/local/$'
+      fullPath: '/api/local/$'
+      preLoaderRoute: typeof ApiLocalSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/models-config/catalog': {
@@ -1178,6 +1198,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiFilesSplatRoute: ApiFilesSplatRoute,
   ApiGitDiffRoute: ApiGitDiffRoute,
   ApiGitStatusRoute: ApiGitStatusRoute,
+  ApiLocalSplatRoute: ApiLocalSplatRoute,
   ApiAuthApiKeyProviderRoute: ApiAuthApiKeyProviderRoute,
   ApiAuthLoginProviderRoute: ApiAuthLoginProviderRoute,
   ApiAuthLogoutProviderRoute: ApiAuthLogoutProviderRoute,
