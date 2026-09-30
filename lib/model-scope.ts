@@ -134,10 +134,7 @@ export async function resolveVisibleModels(
   const { scopedModels, diagnostics } = await resolveModelScopeWithDiagnostics(cleaned, snapshotRuntime);
   // Unmatched patterns are irrelevant once another configured model matched.
   const warnings = diagnostics
-    .filter((diagnostic) => (
-      diagnostic.code !== "no-match"
-      || scopedModels.length === 0
-    ))
+    .filter((diagnostic) => scopedModels.length === 0 || diagnostic.code !== "no-match")
     .map((diagnostic) => diagnostic.message);
   if (scopedModels.length === 0) {
     return {
