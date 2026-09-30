@@ -132,14 +132,11 @@ export async function resolveVisibleModels(
     getAvailable: async () => available,
   } as ModelRuntime;
   const { scopedModels, diagnostics } = await resolveModelScopeWithDiagnostics(cleaned, snapshotRuntime);
-  // A leftover valid glob after a model was removed is not a chat-level problem
-  // when other enabledModels entries still matched. Keep exact and malformed
-  // pattern warnings, and keep all no-match warnings for a total miss.
+  // Unmatched patterns are irrelevant once another configured model matched.
   const warnings = diagnostics
     .filter((diagnostic) => (
       diagnostic.code !== "no-match"
       || scopedModels.length === 0
-      || !isSuppressibleUnmatchedGlob(diagnostic.pattern)
     ))
     .map((diagnostic) => diagnostic.message);
   if (scopedModels.length === 0) {
