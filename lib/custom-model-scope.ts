@@ -42,6 +42,18 @@ export function removeMissingCustomModelKeys(
   });
 }
 
+export function removeNoMatchPatterns(
+  patterns: readonly string[],
+  availableKeys: ReadonlySet<string>,
+): string[] {
+  return patterns.filter((pattern) => {
+    const normalized = pattern.trim();
+    if (!normalized || normalized.includes("*") || normalized.includes("?") || normalized.includes("[")) return true;
+    const base = normalized.replace(/:(off|minimal|low|medium|high|xhigh|max)$/, "");
+    return [...availableKeys].some((key) => key === base || key.endsWith(`/${base}`));
+  });
+}
+
 function disabledPath(): string {
   return join(getAgentDir(), "model-picker-disabled.json");
 }
@@ -85,7 +97,10 @@ export async function adoptCustomModels(
   const disabled = new Set(readDisabledCustomModels().filter((key) => custom.has(key)));
   const available = await modelRuntime.getAvailable();
   const availableKeys = new Set(available.map((model) => `${model.provider}/${model.id}`));
-  const cleanedPatterns = removeMissingCustomModelKeys(patterns, custom, availableKeys);
+  const cleanedPatterns = removeNoMatchPatterns(
+    removeMissingCustomModelKeys(patterns, custom, availableKeys),
+    availableKeys,
+  );
   const scope = await resolveVisibleModels(modelRuntime, cleanedPatterns);
   const visible = new Set(scope.visible.map((model) => `${model.provider}/${model.id}`));
   const missing = missingCustomModelKeys({
