@@ -46,11 +46,18 @@ export function removeNoMatchPatterns(
   patterns: readonly string[],
   availableKeys: ReadonlySet<string>,
 ): string[] {
+  const loadedProviders = new Set(
+    [...availableKeys].map((key) => key.slice(0, key.indexOf("/"))).filter(Boolean),
+  );
   return patterns.filter((pattern) => {
     const normalized = pattern.trim();
     if (!normalized || normalized.includes("*") || normalized.includes("?") || normalized.includes("[")) return true;
     const base = normalized.replace(/:(off|minimal|low|medium|high|xhigh|max)$/, "");
-    return [...availableKeys].some((key) => key === base || key.endsWith(`/${base}`));
+    if ([...availableKeys].some((key) => key === base || key.endsWith(`/${base}`))) return true;
+    const provider = base.slice(0, base.indexOf("/"));
+    // A provider that failed to load must keep its patterns; only drop an exact
+    // ref when that provider is present and this model is gone.
+    return !provider || !loadedProviders.has(provider);
   });
 }
 

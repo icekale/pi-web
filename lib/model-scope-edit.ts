@@ -41,9 +41,14 @@ function suffixFor(
   return globSuffix;
 }
 
+function hasGlob(pattern: string): boolean {
+  return pattern.includes("*") || pattern.includes("?") || pattern.includes("[");
+}
+
 /**
- * Toggle models without dropping globs, thinking-level suffixes, or patterns
- * that currently match nothing.
+ * Toggle models without dropping globs or thinking-level suffixes.
+ * Exact patterns that match nothing are stale catalogue entries; keeping
+ * them makes the scope warning impossible to clear.
  *
  * ponytail: disabling the last exact `provider/id:level` drops that pin;
  * turning it back on adds a bare ref. Per-model thinking levels still live
@@ -74,7 +79,7 @@ export function editModelScope(input: ModelScopeEdit): string[] | undefined {
   for (const pattern of cleaned) {
     const matched = (input.matches.get(pattern) ?? []).filter((key) => catalogSet.has(key));
     if (matched.length === 0) {
-      kept.push(pattern);
+      if (hasGlob(patternBody(pattern))) kept.push(pattern);
       continue;
     }
     if (matched.every((key) => enabled.has(key))) {
