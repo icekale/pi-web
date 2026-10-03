@@ -144,7 +144,9 @@ test("directory picker creates a folder through the browse API", () => {
 });
 
 test("settings exposes the built-in subagent runtime and profiles", () => {
-  assert.match(settings, /type SettingsSection = "general" \| "remote" \| "archived" \| "models" \| "skills" \| "plugins" \| "subagents"/);
+  assert.match(settings, /type SettingsSection = "general" \| "remote" \| "archived" \| "models" \| "skills" \| "plugins" \| "mcp" \| "subagents"/);
+  assert.match(settings, /id: "mcp", label: t\("common\.mcp"\), disabled: !cwd/);
+  assert.match(settings, /<McpSettings cwd=\{cwd\} onReloaded=\{onSessionReloaded\} \/>/);
   assert.match(settings, /id: "subagents", label: t\("common\.subagents"\), disabled: !cwd/);
   assert.match(settings, /section === "subagents"/);
   assert.match(settings, /<SubagentsConfig cwd=\{cwd\} sessionId=\{sessionId\} onReloaded=\{onSessionReloaded\} \/>/);

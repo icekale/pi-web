@@ -1,5 +1,5 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, SettingsManager, Theme } from "@earendil-works/pi-coding-agent";
+import { createAgentSessionFromServices, createAgentSessionServices, createCodemodeExtension, createMcpExtension, createToolSearchExtension, getAgentDir, initTheme, SessionManager, SettingsManager, Theme } from "@earendil-works/pi-coding-agent";
 import type { CacheWarmingMode } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
@@ -182,12 +182,30 @@ function withExtensionTools(session: AgentSessionLike, toolNames: string[]): str
   if (toolNames.length === 0) return [];
 
   const codingToolNames = new Set(CODING_TOOL_NAMES);
+  const active = new Set(session.getActiveToolNames());
   const extensionToolNames = session
     .getAllTools()
-    .map((t) => t.name)
-    .filter((name) => !codingToolNames.has(name));
+    .filter((tool) => !codingToolNames.has(tool.name))
+    .filter((tool) => {
+      const exposure = tool.exposure ?? "direct";
+      // ponytail: model-only stays on only if settings already activated it; MCP codemode tools must not be declared
+      if (exposure === "model-only") return active.has(tool.name);
+      return exposure === "direct";
+    })
+    .map((tool) => tool.name);
 
   return [...new Set([...toolNames, ...extensionToolNames])];
+}
+
+// CLI loads these itself. SDK sessions only get them when the factories are passed in,
+// and `-builtin:<name>` still disables one. OAuth stays in chat: a browser on this host
+// is not the user's.
+function piWebBuiltinExtensions() {
+  return [
+    { name: "codemode", factory: createCodemodeExtension(), replaceable: true, builtin: true },
+    { name: "tool-search", factory: createToolSearchExtension(), replaceable: true, builtin: true },
+    { name: "mcp", factory: createMcpExtension({ openUrl: () => {} }), replaceable: true, builtin: true },
+  ];
 }
 
 // ============================================================================
@@ -2139,6 +2157,7 @@ export async function startRpcSession(
           }
         : {
             extensionFactories: [
+              ...piWebBuiltinExtensions(),
               systemPromptOverrideExtension,
               createProjectCommandBashExtension({
                 cwd: sessionCwd,

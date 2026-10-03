@@ -19,6 +19,7 @@ import {
   Monitor,
   Moon,
   Plug,
+  Server,
   SlidersHorizontal,
   Sun,
   ThermometerSun,
@@ -37,6 +38,7 @@ import { ModelsConfig } from "./ModelsConfig";
 import { ModelScopePanel } from "./ModelScopePanel";
 import type { ModelsDraftController } from "./models-config/models-config-types";
 import type { SettingsSectionController } from "./resource-settings/resource-settings-types";
+import { McpSettings } from "./McpSettings";
 import { PluginsConfig } from "./PluginsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 import { SubagentsConfig } from "./SubagentsConfig";
@@ -47,7 +49,7 @@ import {
   setThinkingExpandedByDefault,
 } from "@/lib/thinking-expansion-preference";
 
-type SettingsSection = "general" | "remote" | "archived" | "models" | "skills" | "plugins" | "subagents";
+type SettingsSection = "general" | "remote" | "archived" | "models" | "skills" | "plugins" | "mcp" | "subagents";
 
 // Pi 0.86's cache-warming profiles (CACHE_WARMING_MODES); "idle" also warms between agent runs.
 type CacheWarmingMode = "off" | "streaming" | "idle";
@@ -89,6 +91,7 @@ function SectionIcon({ section }: { section: SettingsSection }) {
     models: Cpu,
     skills: Layers3,
     plugins: Plug,
+    mcp: Server,
     subagents: Bot,
   };
   const Icon = icons[section];
@@ -325,6 +328,7 @@ export function SettingsPage({
     { id: "models", label: t("common.models"), disabled: false },
     { id: "skills", label: t("common.skills"), disabled: !cwd },
     { id: "plugins", label: t("common.plugins"), disabled: !cwd },
+    { id: "mcp", label: t("common.mcp"), disabled: !cwd },
     { id: "subagents", label: t("common.subagents"), disabled: !cwd },
     { id: "remote", label: t("remote.nav"), disabled: false },
   ];
@@ -502,6 +506,8 @@ export function SettingsPage({
         <span>{t("settings.projectRequiredDescription")}</span>
       </div>
     );
+  } else if (section === "mcp") {
+    content = <McpSettings cwd={cwd} onReloaded={onSessionReloaded} />;
   } else if (section === "skills") {
     content = <SkillsConfig cwd={cwd} onControllerChange={setSkillsController} />;
   } else if (section === "subagents") {
