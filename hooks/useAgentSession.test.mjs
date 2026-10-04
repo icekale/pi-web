@@ -41,14 +41,24 @@ test("keeps the session event stream open through the idle grace window", () => 
   assert.match(graceSource, /setTimeout\(\(\) => void checkServerIdle\(\), EVENT_STREAM_IDLE_GRACE_MS\)/);
   assert.match(graceSource, /fetch\(`\/api\/agent\/\$\{encodeURIComponent\(sid\)\}`\)/);
   assert.match(graceSource, /closeEvents\(\)/);
-  assert.match(finishSource, /scheduleEventStreamClose\(sid\)/);
-  assert.doesNotMatch(finishSource, /closeEvents\(\)/);
-  assert.doesNotMatch(agentEndSource, /closeEvents\(\)/);
-  assert.match(agentStartSource, /cancelEventStreamGrace\(\)/);
-  assert.match(agentSettledSource, /scheduleEventStreamClose\(sid\)/);
-  assert.match(agentSettledSource, /onAgentEnd\?\.\(\)/);
+  assert.match(source, /const settleAfterPersistedReload = useCallback\(async/);
+  const persistedReloadSource = source.slice(
+    source.indexOf("const settleAfterPersistedReload = useCallback"),
+    source.indexOf("const waitForPromptSettlement"),
+  );
+  assert.ok(
+    persistedReloadSource.indexOf("await loadSession(sid,") < persistedReloadSource.indexOf("settleUiStage()"),
+    "completed runs must reload persisted messages before clearing the live stream",
+  );
+  assert.match(persistedReloadSource, /scheduleEventStreamClose\(sid\)/);
+  assert.match(persistedReloadSource, /notify && wasRunning/);
+  assert.match(agentSettledSource, /settleAfterPersistedReload\(sid/);
+  assert.match(promptDoneSource, /settleAfterPersistedReload\(sid, runId/);
+  assert.doesNotMatch(promptDoneSource, /void loadSession\(sid\)/);
+
+  assert.match(agentSettledSource, /acceptsPromptGeneration\(event\)/);
   assert.match(promptDoneSource, /notifyPromptStage\(runId\)/);
-  assert.match(promptDoneSource, /scheduleEventStreamClose\(sid\)/);
+  assert.doesNotMatch(promptDoneSource, /scheduleEventStreamClose\(sid\)/);
   assert.match(sendSource, /const definitivelyRejected = !promptRequestStarted/);
   assert.match(sendSource, /if \(!definitivelyRejected && sentSessionId\) \{[\s\S]*?waitForPromptSettlement/);
   assert.match(sendSource, /restoreSubmission\(message, images, composerDraftKey\);[\s\S]*?if \(sentSessionId\) \{[\s\S]*?reconcileAgentState\(sentSessionId\);[\s\S]*?return;[\s\S]*?\}[\s\S]*?closeEvents\(\)/);
@@ -125,7 +135,7 @@ test("reloads the session when the tab becomes visible after a turn", () => {
   );
   assert.match(recoverySource, /visibilitychange/);
   assert.match(recoverySource, /pageshow/);
-  assert.match(recoverySource, /else void loadSession\(sid\)/);
+  assert.match(recoverySource, /else void loadSession\(sid, false, false, true\)/);
   assert.match(recoverySource, /agentRunning\s*\?\s*setInterval\(sync, AGENT_STATE_RECONCILE_MS\)/);
 });
 
