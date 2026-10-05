@@ -465,6 +465,8 @@ test("commits the live assistant before a post-turn reload can drop it", () => {
     source.indexOf("  const notifyPromptStage = useCallback"),
   );
   assert.match(source, /const commitLiveAssistant = useCallback/);
+  assert.match(source, /function hasPersistableAssistantContent\(message: AgentMessage \| null \| undefined\)/);
+  assert.match(source, /!persistThinkingOnly && !hasPersistableAssistantContent\(live\)/);
   assert.match(source, /streamStateRef\.current\.streamingMessage/);
   assert.ok(
     agentEndSource.indexOf("commitLiveAssistant()") < agentEndSource.indexOf('dispatch({ type: "end" })'),

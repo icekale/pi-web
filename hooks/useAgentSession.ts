@@ -32,6 +32,12 @@ import {
 } from "@/lib/chat-lazy-load";
 import { SESSION_MESSAGE_WINDOW, historyItemKey, mergeWindowedHistory } from "@/lib/session-window";
 import { highestThinkingLevel } from "@/lib/thinking-level";
+
+function hasPersistableAssistantContent(message: AgentMessage | null | undefined): boolean {
+  if (!message || message.role !== "assistant") return false;
+  return message.content.some((block) => block.type !== "thinking" || block.thinking.trim() !== "");
+}
+
 import {
   INITIAL_STREAMING_STATE,
   streamReducer,
@@ -368,10 +374,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     messagesRef.current = resolved;
     setMessages(resolved);
   }, []);
-  const commitLiveAssistant = useCallback(() => {
+  const commitLiveAssistant = useCallback((persistThinkingOnly = false) => {
     textDeltaBatcherRef.current?.flush();
     const live = streamStateRef.current.streamingMessage;
-    if (!live?.content.length) return;
+    if (!live?.content.length || (!persistThinkingOnly && !hasPersistableAssistantContent(live))) return;
     const normalized = normalizeToolCalls(live);
     replaceMessages((prev) => {
       const last = prev[prev.length - 1];
