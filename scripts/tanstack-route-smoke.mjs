@@ -203,6 +203,11 @@ export async function smokeAllRoutes({ origin, authHeaders = {} }) {
       headers: { "content-type": "application/json" },
       body: "{}",
     });
+    await probe("GET", `/api/mcp?cwd=${encodeURIComponent(fixtureDir)}`, [200, 400]);
+    await probe("POST", "/api/mcp", [400], {
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
     await probe("GET", `/api/plugins?cwd=${encodeURIComponent(fixtureDir)}`, [200, 400]);
     await probe("POST", "/api/plugins", [400], {
       headers: { "content-type": "application/json" },

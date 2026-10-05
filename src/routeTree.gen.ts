@@ -16,6 +16,7 @@ import { Route as ApiDefaultCwdRouteImport } from './routes/api/default-cwd'
 import { Route as ApiFileIndexRouteImport } from './routes/api/file-index'
 import { Route as ApiHomeRouteImport } from './routes/api/home'
 import { Route as ApiImageResizeRouteImport } from './routes/api/image-resize'
+import { Route as ApiMcpRouteImport } from './routes/api/mcp'
 import { Route as ApiModelsRouteImport } from './routes/api/models'
 import { Route as ApiModelsConfigRouteImport } from './routes/api/models-config'
 import { Route as ApiPluginsRouteImport } from './routes/api/plugins'
@@ -95,6 +96,11 @@ const ApiHomeRoute = ApiHomeRouteImport.update({
 const ApiImageResizeRoute = ApiImageResizeRouteImport.update({
   id: '/api/image-resize',
   path: '/api/image-resize',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMcpRoute = ApiMcpRouteImport.update({
+  id: '/api/mcp',
+  path: '/api/mcp',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiModelsRoute = ApiModelsRouteImport.update({
@@ -334,6 +340,7 @@ export interface FileRoutesByFullPath {
   '/api/file-index': typeof ApiFileIndexRoute
   '/api/home': typeof ApiHomeRoute
   '/api/image-resize': typeof ApiImageResizeRoute
+  '/api/mcp': typeof ApiMcpRoute
   '/api/models': typeof ApiModelsRouteWithChildren
   '/api/models-config': typeof ApiModelsConfigRouteWithChildren
   '/api/plugins': typeof ApiPluginsRoute
@@ -388,6 +395,7 @@ export interface FileRoutesByTo {
   '/api/file-index': typeof ApiFileIndexRoute
   '/api/home': typeof ApiHomeRoute
   '/api/image-resize': typeof ApiImageResizeRoute
+  '/api/mcp': typeof ApiMcpRoute
   '/api/models': typeof ApiModelsRouteWithChildren
   '/api/models-config': typeof ApiModelsConfigRouteWithChildren
   '/api/plugins': typeof ApiPluginsRoute
@@ -443,6 +451,7 @@ export interface FileRoutesById {
   '/api/file-index': typeof ApiFileIndexRoute
   '/api/home': typeof ApiHomeRoute
   '/api/image-resize': typeof ApiImageResizeRoute
+  '/api/mcp': typeof ApiMcpRoute
   '/api/models': typeof ApiModelsRouteWithChildren
   '/api/models-config': typeof ApiModelsConfigRouteWithChildren
   '/api/plugins': typeof ApiPluginsRoute
@@ -499,6 +508,7 @@ export interface FileRouteTypes {
     | '/api/file-index'
     | '/api/home'
     | '/api/image-resize'
+    | '/api/mcp'
     | '/api/models'
     | '/api/models-config'
     | '/api/plugins'
@@ -553,6 +563,7 @@ export interface FileRouteTypes {
     | '/api/file-index'
     | '/api/home'
     | '/api/image-resize'
+    | '/api/mcp'
     | '/api/models'
     | '/api/models-config'
     | '/api/plugins'
@@ -607,6 +618,7 @@ export interface FileRouteTypes {
     | '/api/file-index'
     | '/api/home'
     | '/api/image-resize'
+    | '/api/mcp'
     | '/api/models'
     | '/api/models-config'
     | '/api/plugins'
@@ -662,6 +674,7 @@ export interface RootRouteChildren {
   ApiFileIndexRoute: typeof ApiFileIndexRoute
   ApiHomeRoute: typeof ApiHomeRoute
   ApiImageResizeRoute: typeof ApiImageResizeRoute
+  ApiMcpRoute: typeof ApiMcpRoute
   ApiModelsRoute: typeof ApiModelsRouteWithChildren
   ApiModelsConfigRoute: typeof ApiModelsConfigRouteWithChildren
   ApiPluginsRoute: typeof ApiPluginsRoute
@@ -739,6 +752,13 @@ declare module '@tanstack/react-router' {
       path: '/api/image-resize'
       fullPath: '/api/image-resize'
       preLoaderRoute: typeof ApiImageResizeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mcp': {
+      id: '/api/mcp'
+      path: '/api/mcp'
+      fullPath: '/api/mcp'
+      preLoaderRoute: typeof ApiMcpRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/models': {
@@ -1177,6 +1197,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiFileIndexRoute: ApiFileIndexRoute,
   ApiHomeRoute: ApiHomeRoute,
   ApiImageResizeRoute: ApiImageResizeRoute,
+  ApiMcpRoute: ApiMcpRoute,
   ApiModelsRoute: ApiModelsRouteWithChildren,
   ApiModelsConfigRoute: ApiModelsConfigRouteWithChildren,
   ApiPluginsRoute: ApiPluginsRoute,

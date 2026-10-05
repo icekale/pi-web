@@ -32,7 +32,8 @@ type Loaded = { servers: Array<{ name: string; config: McpConfig; source: string
 const pendingLogins = new Map<string, { url?: string; done: boolean; error?: string; promise: Promise<void> }>();
 
 function mcpModules() {
-  const entry = createRequire(import.meta.url).resolve("@earendil-works/pi-coding-agent");
+  // CJS resolve ignores the package's import-only export and fails in the standalone server.
+  const entry = import.meta.resolve("@earendil-works/pi-coding-agent");
   const local = createRequire(entry);
   return {
     config: local("./extensions/mcp/config.js") as {
