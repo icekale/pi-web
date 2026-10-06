@@ -11,6 +11,13 @@ const jiti = createJiti(import.meta.url, {
 const { MarkdownBody } = await jiti.import("./MarkdownBody.tsx");
 const { normalizeDisplayMath } = await jiti.import("../lib/markdown.ts");
 
+test("defers the markdown renderer from the message view entry chunk", async () => {
+  const source = await import("node:fs/promises").then((fs) => fs.readFile(new URL("./MessageView.tsx", import.meta.url), "utf8"));
+
+  assert.match(source, /const MarkdownBodyImpl = lazy\(\(\) => import\("\.\/MarkdownBody"\)/);
+  assert.doesNotMatch(source, /import \{ MarkdownBody \} from "\.\/MarkdownBody"/);
+});
+
 function renderMarkdown(markdown) {
   return renderToStaticMarkup(
     React.createElement(MarkdownBody, {
@@ -19,6 +26,7 @@ function renderMarkdown(markdown) {
     }, markdown),
   );
 }
+
 
 test("opens non-file markdown links in a safe new tab", () => {
   const html = renderMarkdown("[docs](https://example.com/docs)");

@@ -30,7 +30,7 @@ import {
   CHAT_SCROLL_TAIL_TOLERANCE,
   getLiveFollowAttached,
 } from "@/lib/chat-lazy-load";
-import { SESSION_MESSAGE_WINDOW, historyItemKey, mergeWindowedHistory } from "@/lib/session-window";
+import { SESSION_INITIAL_MESSAGE_WINDOW, SESSION_MESSAGE_WINDOW, historyItemKey, mergeWindowedHistory } from "@/lib/session-window";
 import { highestThinkingLevel } from "@/lib/thinking-level";
 
 function hasPersistableAssistantContent(message: AgentMessage | null | undefined): boolean {
@@ -545,7 +545,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } satisfies SessionStatsInfo;
   }, [messages, sessionStatsOverride, contextUsage, data?.filePath, data?.totalActiveMs, session?.id, session?.name]);
 
-  const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false, followCurrentLeaf = false) => {
+  const loadSession = useCallback(async (sid: string, showLoading = false, includeState = false, followCurrentLeaf = false, replaceHistory = false) => {
     const gen = ++loadSessionGenRef.current;
     let messagesLoaded = false;
     try {
@@ -554,7 +554,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         deferThinking: "1",
         deferMedia: "1",
         deferToolResults: "1",
-        limit: String(SESSION_MESSAGE_WINDOW),
+        limit: String(SESSION_INITIAL_MESSAGE_WINDOW),
       });
       if (activeLeafIdRef.current && !followCurrentLeaf) params.set("leafId", activeLeafIdRef.current);
       const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}?${params}`);
@@ -575,12 +575,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       textDeltaBatcher.flush();
       commitLiveAssistant();
       const incomingIds = d.context.entryIds ?? [];
-      const merged = mergeWindowedHistory(
-        messagesRef.current,
-        entryIdsRef.current,
-        d.context.messages,
-        incomingIds,
-      );
+      const merged = replaceHistory
+        ? { items: d.context.messages, entryIds: incomingIds }
+        : mergeWindowedHistory(
+          messagesRef.current,
+          entryIdsRef.current,
+          d.context.messages,
+          incomingIds,
+        );
       setData(d);
       setActiveLeafId(d.leafId);
       replaceMessages(merged.items);
@@ -2237,11 +2239,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     sessionIdRef.current = sid;
     activeLeafIdRef.current = null;
     setActiveLeafId(null);
-    replaceMessages([]);
+    // Keep the previous session visible behind the loading veil. Clearing it
+    // turns a short fetch into a full-screen blank state on slow links.
     setEntryIds([]);
     setHistoryHasMore(false);
 
-    void loadSession(sid, true, !opts.readOnlyHistory).then((agentState) => {
+    void loadSession(sid, true, !opts.readOnlyHistory, true, true).then((agentState) => {
       if (sessionIdRef.current !== sid) return;
       if (agentState?.running) {
         loadTools(sid);

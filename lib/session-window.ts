@@ -1,6 +1,7 @@
 import type { SessionContext } from "./types";
 
 export const SESSION_MESSAGE_WINDOW = 80;
+export const SESSION_INITIAL_MESSAGE_WINDOW = 20;
 export const SESSION_WINDOW_INITIAL_BYTES = 512 * 1024;
 export const SESSION_WINDOW_MAX_BYTES = 2 * 1024 * 1024;
 

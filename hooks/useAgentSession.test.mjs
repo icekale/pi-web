@@ -198,7 +198,7 @@ test("context usage refreshes from assistant completions and live agent state", 
     "agent_end must apply context usage before the run-generation gate",
   );
   assert.match(historyRefreshSource, /loadSession\(session\.id, false, false\)/);
-  assert.match(source, /loadSession\(sid, true, !opts\.readOnlyHistory\)/);
+  assert.match(source, /loadSession\(sid, true, !opts\.readOnlyHistory, true, true\)/);
   assert.match(source, /loadedSessionIdRef/);
   assert.match(source, /\[session\?\.id\]/);
   assert.match(source, /from "@\/lib\/conversation-context"/);
@@ -307,7 +307,10 @@ test("switching sessions reloads without remounting ChatWindow", () => {
     appShellSource.indexOf("  // ---- Subagent tree"),
   );
   assert.doesNotMatch(selectSource, /setSessionKey/);
-  assert.match(source, /if \(loadedSessionIdRef\.current === sid\) return/);
+  assert.match(source, /const loadSession = useCallback\(async \(sid: string, showLoading = false, includeState = false, followCurrentLeaf = false, replaceHistory = false\)/);
+  assert.match(source, /const merged = replaceHistory\s+\? \{ items: d\.context\.messages, entryIds: incomingIds \}/);
+  assert.match(source, /loadSession\(sid, true, !opts\.readOnlyHistory, true, true\)/);
+  assert.match(chatWindowSource, /if \(loading && messages\.length === 0\)/);
 });
 
 test("abandoned fresh-session drafts are cleared and cannot be recreated by late rejection", () => {

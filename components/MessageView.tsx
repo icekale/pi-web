@@ -1,8 +1,23 @@
 "use client";
 
-import { memo, useState, useRef, useEffect, useMemo } from "react";
+import { lazy, memo, Suspense, useState, useRef, useEffect, useMemo } from "react";
 import { ArrowDown, Check, ChevronDown, Copy, CornerDownRight, GitBranch, LoaderCircle, Minus, X } from "lucide-react";
-import { MarkdownBody } from "./MarkdownBody";
+const MarkdownBodyImpl = lazy(() => import("./MarkdownBody").then((module) => ({
+  default: module.MarkdownBody,
+})));
+
+function MarkdownBody(props: React.ComponentProps<typeof MarkdownBodyImpl>) {
+  return (
+    <Suspense fallback={
+      <span className="markdown-body markdown-loading" aria-hidden="true">
+        {props.children}
+      </span>
+    }>
+      <MarkdownBodyImpl {...props} />
+    </Suspense>
+  );
+}
+
 import { ImagePreview } from "./ImagePreview";
 import { copyText } from "@/lib/clipboard";
 import { useI18n } from "@/hooks/useI18n";

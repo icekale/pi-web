@@ -1,12 +1,14 @@
 "use client";
 
-import { useMemo, type MouseEvent } from "react";
+import { lazy, Suspense, useMemo, type MouseEvent } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import { resolveLocalFileHref } from "@/lib/file-links";
 import { loopbackProxyHref } from "@/lib/local-proxy";
 import { encodeFilePathForApi } from "@/lib/file-paths";
 import { markdownRehypePlugins, markdownRemarkPlugins, normalizeDisplayMath } from "@/lib/markdown";
-import { MermaidBlock, CodeBlock } from "./MermaidBlock";
+
+const MermaidBlock = lazy(() => import("./MermaidBlock").then((module) => ({ default: module.MermaidBlock })));
+const CodeBlock = lazy(() => import("./MermaidBlock").then((module) => ({ default: module.CodeBlock })));
 
 interface MarkdownBodyProps {
   children: string;
@@ -33,9 +35,17 @@ export function MarkdownBody({ children, className, isStreaming, cwd, sessionId,
       const isBlock = className?.includes("language-") || raw.includes("\n");
       if (isBlock) {
         if (lang === "mermaid") {
-          return <MermaidBlock code={raw.replace(/\n$/, "")} isStreaming={isStreaming} />;
+          return (
+            <Suspense fallback={<pre><code>{raw.replace(/\n$/, "")}</code></pre>}>
+              <MermaidBlock code={raw.replace(/\n$/, "")} isStreaming={isStreaming} />
+            </Suspense>
+          );
         }
-        return <CodeBlock code={raw.replace(/\n$/, "")} lang={lang} isStreaming={isStreaming} />;
+        return (
+          <Suspense fallback={<pre><code>{raw.replace(/\n$/, "")}</code></pre>}>
+            <CodeBlock code={raw.replace(/\n$/, "")} lang={lang} isStreaming={isStreaming} />
+          </Suspense>
+        );
       }
       return (
         <code

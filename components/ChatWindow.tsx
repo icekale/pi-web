@@ -805,10 +805,10 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     />
   );
 
-  if (loading) {
+  if (loading && messages.length === 0) {
     return (
       <div className="flex h-full items-center justify-center text-text-muted">
-         {t("chat.loadingSession")}
+        {t("chat.loadingSession")}
       </div>
     );
   }
@@ -825,11 +825,20 @@ export function ChatWindow({ session, sessionRunning, newSessionCwd, newSessionD
     <div
       className="relative flex h-full min-w-0 flex-col overflow-hidden"
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+      aria-busy={loading}
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
+      {loading && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-white/55 text-text-muted backdrop-blur-[1px] dark:bg-black/45">
+          <span className="rounded-full bg-white/90 px-4 py-2 text-sm shadow-sm dark:bg-neutral-900/90">
+            {t("chat.loadingSession")}
+          </span>
+        </div>
+      )}
+
       {isDragOver && (
         <div className="pointer-events-none absolute inset-0 z-50 flex animate-[drop-zone-in_0.15s_ease_both] items-center justify-center bg-[rgba(37,99,235,0.06)] backdrop-blur-[1px]">
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
